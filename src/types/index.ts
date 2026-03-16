@@ -37,10 +37,71 @@ export interface Exercise {
   equipment?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
   videoUrl?: string;
+  gifUrl?: string;
   imageUrl?: string;
   instructions?: string[];
   isCustom?: boolean;
   trainerId?: string;
+}
+
+// ── PATIENT REGISTRATION ────────────────────────────────────────────────────
+export interface PendingPatient {
+  token: string;
+  trainerId: string;
+  prefilledName?: string;
+  prefilledEmail?: string;
+  phone?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface PatientAnamnesis {
+  // Basic data
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  birthDate?: string;
+  gender: 'male' | 'female' | 'other';
+  weight: number;
+  height: number;
+  bodyFat?: number;
+  // Medical history
+  chronicDiseases: string[];
+  medications: string;
+  surgeries: string;
+  familyHistory: string;
+  // Nutritional history
+  previousDiets: string[];
+  eatingDisorders: string;
+  supplementsUsed: string[];
+  // Lifestyle
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  activityDescription: string;
+  sleepHours: number;
+  stressLevel: 1 | 2 | 3 | 4 | 5;
+  // Dietary preferences
+  dietType: 'omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean' | 'other';
+  mealsPerDay: number;
+  mealSchedule: string;
+  cookingSkill: 'none' | 'basic' | 'intermediate' | 'advanced';
+  cookingTime: 'minimal' | 'moderate' | 'extensive';
+  budget: 'low' | 'medium' | 'high';
+  // Restrictions
+  allergies: string[];
+  intolerances: string[];
+  dislikedFoods: string[];
+  // Health goals
+  goal: 'lose_weight' | 'maintain' | 'gain_muscle' | 'performance' | 'health' | 'other';
+  targetWeight?: number;
+  motivations: string;
+  // GI & habits
+  giIssues: string[];
+  hydrationLiters: number;
+  alcoholFrequency: 'never' | 'rarely' | 'weekly' | 'daily';
+  caffeineIntake: 'none' | 'low' | 'moderate' | 'high';
+  // Additional notes
+  notes: string;
 }
 
 export interface WorkoutSet {

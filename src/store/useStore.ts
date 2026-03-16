@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan } from '../types';
+import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan, PendingPatient, PatientAnamnesis } from '../types';
 import { EXERCISES_DB } from '../data/exercises';
 
 export interface StoredAccount {
@@ -65,6 +65,12 @@ interface AppState {
   addNutritionPlan: (plan: Omit<NutritionPlan, 'id'>) => NutritionPlan;
   deleteNutritionPlan: (id: string) => void;
   getNutritionPlan: (id: string) => NutritionPlan | undefined;
+
+  // Patient invite actions
+  createPatientInvite: (name: string, email: string, phone: string) => PendingPatient;
+  getPendingPatient: (token: string) => PendingPatient | undefined;
+  removePendingPatient: (token: string) => void;
+  registerPatientFromAnamnesis: (token: string, anamnesis: PatientAnamnesis) => boolean;
 }
 
 // Built-in accounts (not stored in localStorage, not deletable)
@@ -388,6 +394,79 @@ export const useStore = create<AppState>()(
       },
 
       getNutritionPlan: (id) => get().nutritionPlans.find((p) => p.id === id),
+
+      createPatientInvite: (name, email, phone) => {
+        const { currentUser } = get();
+        const token = generateId() + generateId();
+        const pending: PendingPatient = {
+          token,
+          trainerId: currentUser?.id || '',
+          prefilledName: name,
+          prefilledEmail: email,
+          phone,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        };
+        const stored = JSON.parse(localStorage.getItem('apd-pending-patients') || '[]') as PendingPatient[];
+        stored.push(pending);
+        localStorage.setItem('apd-pending-patients', JSON.stringify(stored));
+        return pending;
+      },
+
+      getPendingPatient: (token) => {
+        const stored = JSON.parse(localStorage.getItem('apd-pending-patients') || '[]') as PendingPatient[];
+        return stored.find(p => p.token === token);
+      },
+
+      removePendingPatient: (token) => {
+        const stored = JSON.parse(localStorage.getItem('apd-pending-patients') || '[]') as PendingPatient[];
+        localStorage.setItem('apd-pending-patients', JSON.stringify(stored.filter(p => p.token !== token)));
+      },
+
+      registerPatientFromAnamnesis: (token, anamnesis) => {
+        const pending = get().getPendingPatient(token);
+        if (!pending) return false;
+        // Create account in apd-accounts
+        const storedAccounts = JSON.parse(localStorage.getItem('apd-accounts') || '[]') as { email: string; password: string; user: User }[];
+        const exists = storedAccounts.some(a => a.email.toLowerCase() === anamnesis.email.toLowerCase());
+        if (exists) return false;
+        const newUser: User = {
+          id: generateId(),
+          email: anamnesis.email,
+          name: anamnesis.name,
+          role: 'trainer',
+          status: 'active',
+          phone: anamnesis.phone,
+          createdAt: new Date().toISOString(),
+        };
+        storedAccounts.push({ email: anamnesis.email, password: anamnesis.password, user: newUser });
+        localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+        // Create athlete record linked to trainer
+        const athlete: Athlete = {
+          id: generateId(),
+          trainerId: pending.trainerId,
+          name: anamnesis.name,
+          email: anamnesis.email,
+          phone: anamnesis.phone,
+          birthDate: anamnesis.birthDate,
+          gender: anamnesis.gender,
+          weight: anamnesis.weight,
+          height: anamnesis.height,
+          goals: anamnesis.motivations,
+          medicalNotes: [
+            anamnesis.chronicDiseases.length ? `Enfermedades: ${anamnesis.chronicDiseases.join(', ')}` : '',
+            anamnesis.medications ? `Medicación: ${anamnesis.medications}` : '',
+            anamnesis.allergies.length ? `Alergias: ${anamnesis.allergies.join(', ')}` : '',
+            anamnesis.intolerances.length ? `Intolerancias: ${anamnesis.intolerances.join(', ')}` : '',
+            anamnesis.notes ? `Notas: ${anamnesis.notes}` : '',
+          ].filter(Boolean).join(' | '),
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        };
+        set(state => ({ athletes: [...state.athletes, athlete] }));
+        get().removePendingPatient(token);
+        return true;
+      },
     } as AppState),
     {
       name: 'apd-sport-storage',

@@ -1,0 +1,127 @@
+import React, { useState } from 'react';
+import { useStore } from '../store/useStore';
+import { X, MessageCircle, Copy, CheckCircle2, User, Mail, Phone } from 'lucide-react';
+
+interface Props {
+  onClose: () => void;
+}
+
+export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
+  const { createPatientInvite } = useStore();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [step, setStep] = useState<'form' | 'link'>('form');
+  const [link, setLink] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleCreate = () => {
+    if (!phone.trim()) return;
+    const pending = createPatientInvite(name.trim(), email.trim(), phone.trim());
+    const baseUrl = window.location.href.split('#')[0];
+    const registrationLink = `${baseUrl}#/registro-paciente/${pending.token}`;
+    setLink(registrationLink);
+    setStep('link');
+  };
+
+  const handleWhatsApp = () => {
+    const cleanPhone = phone.replace(/[\s\-\(\)\+]/g, '');
+    const message = `Hola${name ? ` ${name}` : ''},\n\nTe envío este enlace para completar tu ficha nutricional y de salud. Solo te llevará unos minutos y me permitirá preparar tu plan personalizado.\n\n${link}\n\nEl enlace es válido durante 7 días.\n\n¡Cualquier duda, escríbeme! 💪`;
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+  };
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center">
+              <MessageCircle className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-slate-800">Invitar Paciente</h2>
+              <p className="text-xs text-slate-400">Envía el enlace de registro por WhatsApp</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5">
+          {step === 'form' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1"><User className="w-3.5 h-3.5" />Nombre del paciente</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre y apellidos (opcional)" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1"><Mail className="w-3.5 h-3.5" />Email</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@ejemplo.com (opcional)" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5 flex items-center gap-1">
+                  <Phone className="w-3.5 h-3.5" />Número de WhatsApp <span className="text-red-400">*</span>
+                </label>
+                <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+34 600 000 000" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                <p className="text-xs text-slate-400 mt-1">Incluye el prefijo del país. Ej: +34 para España.</p>
+              </div>
+              <div className="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 space-y-1">
+                <p className="font-semibold">¿Cómo funciona?</p>
+                <p>1. Se genera un enlace único y seguro para tu paciente</p>
+                <p>2. Lo envías por WhatsApp con un solo clic</p>
+                <p>3. El paciente rellena su ficha de salud y nutrición completa</p>
+                <p>4. Su cuenta queda creada y vinculada a ti automáticamente</p>
+                <p>5. El enlace expira en 7 días por seguridad</p>
+              </div>
+              <button onClick={handleCreate} disabled={!phone.trim()} className="w-full py-3 bg-green-600 text-white rounded-xl font-medium text-sm hover:bg-green-700 disabled:opacity-40 transition">
+                Generar Enlace
+              </button>
+            </div>
+          )}
+
+          {step === 'link' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 bg-green-50 rounded-xl p-3">
+                <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                <p className="text-sm text-green-700 font-medium">Enlace generado correctamente</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Enlace de registro</label>
+                <div className="flex gap-2">
+                  <input readOnly value={link} className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50 text-slate-600 focus:outline-none" />
+                  <button onClick={handleCopy} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition ${copied ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                    {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copied ? '¡Copiado!' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+
+              <button onClick={handleWhatsApp} className="w-full flex items-center justify-center gap-2.5 py-3.5 bg-[#25D366] text-white rounded-xl font-semibold text-sm hover:bg-[#1da851] transition shadow-md">
+                <MessageCircle className="w-5 h-5" />
+                Enviar por WhatsApp{name ? ` a ${name}` : ''}
+              </button>
+
+              <p className="text-xs text-center text-slate-400">
+                Al hacer clic, se abrirá WhatsApp Web con el mensaje preescrito listo para enviar.
+              </p>
+
+              <button onClick={() => { setStep('form'); setName(''); setEmail(''); setPhone(''); setLink(''); }} className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition">
+                Invitar otro paciente
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

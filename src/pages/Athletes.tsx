@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Users, Mail, Phone, Trash2, Eye, Edit3 } from 'lucide-react';
+import { Plus, Search, Users, Mail, Phone, Trash2, Eye, Edit3, MessageCircle } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { Header } from '../components/layout/Header';
 import { Card } from '../components/ui/Card';
@@ -12,6 +12,7 @@ import { useStore } from '../store/useStore';
 import type { Athlete } from '../types';
 import { useToast } from '../hooks/useToast';
 import { ToastContainer } from '../components/ui/Toast';
+import { PatientInviteModal } from '../components/PatientInviteModal';
 
 const LEVEL_OPTIONS = [
   { value: 'beginner', label: 'Principiante' },
@@ -112,6 +113,7 @@ export const Athletes: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editAthlete, setEditAthlete] = useState<Athlete | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   const filtered = athletes.filter((a) => {
     const matchSearch =
@@ -148,9 +150,14 @@ export const Athletes: React.FC = () => {
         title="Deportistas"
         subtitle={`${athletes.length} deportistas registrados`}
         actions={
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => { setEditAthlete(null); setShowModal(true); }}>
-            Añadir Deportista
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" icon={<MessageCircle className="w-4 h-4" />} onClick={() => setShowInviteModal(true)}>
+              Invitar Paciente
+            </Button>
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => { setEditAthlete(null); setShowModal(true); }}>
+              Añadir Deportista
+            </Button>
+          </div>
         }
       />
 

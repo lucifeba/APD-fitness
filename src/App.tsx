@@ -16,6 +16,7 @@ import { Nutrition } from './pages/Nutrition';
 import { NutritionGenerator } from './pages/NutritionGenerator';
 import { NutritionPlanDetail } from './pages/NutritionPlanDetail';
 import { AdminPanel } from './pages/admin/AdminPanel';
+import { PatientRegister } from './pages/PatientRegister';
 import { useStore } from './store/useStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -37,6 +38,7 @@ const App: React.FC = () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/registro-paciente/:token" element={<PatientRegister />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/athletes" element={<ProtectedRoute><Athletes /></ProtectedRoute>} />
         <Route path="/athletes/:id" element={<ProtectedRoute><AthleteDetail /></ProtectedRoute>} />
