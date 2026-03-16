@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Award, User, Mail, Lock } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Eye, EyeOff, Award, User, Mail, Lock, CheckCircle, Clock } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
 export const Register: React.FC = () => {
@@ -8,8 +8,8 @@ export const Register: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
   const { register } = useStore();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +31,7 @@ export const Register: React.FC = () => {
     setLoading(false);
 
     if (ok) {
-      navigate('/dashboard');
+      setRegistered(true);
     } else {
       setError('Este email ya está registrado');
     }
@@ -39,6 +39,35 @@ export const Register: React.FC = () => {
 
   const update = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  if (registered) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700 p-4">
+        <div className="w-full max-w-md text-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-10">
+            <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Clock className="w-10 h-10 text-amber-500" />
+            </div>
+            <CheckCircle className="w-6 h-6 text-emerald-500 mx-auto mb-3" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-3">¡Solicitud Enviada!</h2>
+            <p className="text-slate-600 mb-2">
+              Tu cuenta ha sido creada para <span className="font-semibold">{form.email}</span>.
+            </p>
+            <p className="text-slate-500 text-sm mb-8">
+              Tu acceso está <span className="font-semibold text-amber-600">pendiente de validación</span> por el administrador.
+              Recibirás confirmación en breve y podrás iniciar sesión una vez aprobado.
+            </p>
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
+            >
+              Volver al inicio de sesión
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700 p-4">

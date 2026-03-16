@@ -19,11 +19,15 @@ export const Login: React.FC = () => {
 
     await new Promise((r) => setTimeout(r, 400));
 
-    const ok = login(email, password);
+    const result = login(email, password);
     setLoading(false);
 
-    if (ok) {
+    if (result === 'ok') {
       navigate('/dashboard');
+    } else if (result === 'pending') {
+      setError('Tu cuenta está pendiente de validación. El administrador revisará tu solicitud en breve.');
+    } else if (result === 'suspended') {
+      setError('Tu cuenta ha sido suspendida. Contacta con el administrador para más información.');
     } else {
       setError('Email o contraseña incorrectos. Verifica tus credenciales.');
     }

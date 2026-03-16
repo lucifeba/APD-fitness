@@ -57,7 +57,7 @@ export const Assignments: React.FC = () => {
         subtitle={`${assignments.length} asignaciones totales`}
       />
 
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
@@ -121,97 +121,141 @@ export const Assignments: React.FC = () => {
             )}
           </div>
         ) : (
-          <Card padding="none">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Deportista</th>
-                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Plan</th>
-                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Inicio</th>
-                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Estado</th>
-                    <th className="px-5 py-3.5 text-right text-xs font-semibold text-slate-400 uppercase">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {filtered.map((assignment) => {
-                    const athlete = getAthlete(assignment.athleteId);
-                    const plan = getPlan(assignment.planId);
-
-                    return (
-                      <tr key={assignment.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
-                              {athlete?.name.charAt(0) || '?'}
+          <>
+            {/* Desktop table */}
+            <Card padding="none" className="hidden sm:block">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Deportista</th>
+                      <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Plan</th>
+                      <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Inicio</th>
+                      <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-400 uppercase">Estado</th>
+                      <th className="px-5 py-3.5 text-right text-xs font-semibold text-slate-400 uppercase">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filtered.map((assignment) => {
+                      const athlete = getAthlete(assignment.athleteId);
+                      const plan = getPlan(assignment.planId);
+                      return (
+                        <tr key={assignment.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                                {athlete?.name.charAt(0) || '?'}
+                              </div>
+                              <div>
+                                <button onClick={() => athlete && navigate(`/athletes/${athlete.id}`)}
+                                  className="text-sm font-medium text-slate-800 hover:text-blue-600 transition-colors">
+                                  {athlete?.name || 'Deportista eliminado'}
+                                </button>
+                                <p className="text-xs text-slate-400">{athlete?.sport || athlete?.email || ''}</p>
+                              </div>
                             </div>
-                            <div>
-                              <button
-                                onClick={() => athlete && navigate(`/athletes/${athlete.id}`)}
-                                className="text-sm font-medium text-slate-800 hover:text-blue-600 transition-colors"
-                              >
-                                {athlete?.name || 'Deportista eliminado'}
-                              </button>
-                              <p className="text-xs text-slate-400">{athlete?.sport || athlete?.email || ''}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          <button
-                            onClick={() => plan && navigate(`/plans/${plan.id}`)}
-                            className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors flex items-center gap-1"
-                          >
-                            {plan?.name || 'Plan eliminado'}
-                            {plan && <ChevronRight className="w-3.5 h-3.5" />}
-                          </button>
-                          <p className="text-xs text-slate-400">
-                            {plan?.weeks.length || 0} semanas
-                          </p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="text-sm text-slate-600">
-                            {format(new Date(assignment.startDate), 'd MMM yyyy', { locale: es })}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <select
-                            value={assignment.status}
-                            onChange={(e) => handleStatusChange(assignment.id, e.target.value)}
-                            className="text-xs border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                          >
-                            <option value="pending">Pendiente</option>
-                            <option value="active">Activo</option>
-                            <option value="paused">Pausado</option>
-                            <option value="completed">Completado</option>
-                          </select>
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center justify-end gap-1">
-                            {plan && (
-                              <button
-                                onClick={() => handleDownloadPDF(assignment.id)}
-                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                title="Descargar PDF"
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setDeleteId(assignment.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4" />
+                          </td>
+                          <td className="px-5 py-4">
+                            <button onClick={() => plan && navigate(`/plans/${plan.id}`)}
+                              className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors flex items-center gap-1">
+                              {plan?.name || 'Plan eliminado'}
+                              {plan && <ChevronRight className="w-3.5 h-3.5" />}
                             </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            <p className="text-xs text-slate-400">{plan?.weeks.length || 0} semanas</p>
+                          </td>
+                          <td className="px-5 py-4">
+                            <p className="text-sm text-slate-600">{format(new Date(assignment.startDate), 'd MMM yyyy', { locale: es })}</p>
+                          </td>
+                          <td className="px-5 py-4">
+                            <select value={assignment.status} onChange={(e) => handleStatusChange(assignment.id, e.target.value)}
+                              className="text-xs border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                              <option value="pending">Pendiente</option>
+                              <option value="active">Activo</option>
+                              <option value="paused">Pausado</option>
+                              <option value="completed">Completado</option>
+                            </select>
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center justify-end gap-1">
+                              {plan && (
+                                <button onClick={() => handleDownloadPDF(assignment.id)}
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="PDF">
+                                  <Download className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button onClick={() => setDeleteId(assignment.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Mobile cards */}
+            <div className="sm:hidden space-y-3">
+              {filtered.map((assignment) => {
+                const athlete = getAthlete(assignment.athleteId);
+                const plan = getPlan(assignment.planId);
+                return (
+                  <Card key={assignment.id}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold flex-shrink-0">
+                        {athlete?.name.charAt(0) || '?'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <button onClick={() => athlete && navigate(`/athletes/${athlete.id}`)}
+                          className="font-medium text-slate-800 hover:text-blue-600 text-sm truncate w-full text-left">
+                          {athlete?.name || 'Deportista eliminado'}
+                        </button>
+                        <p className="text-xs text-slate-400 truncate">{athlete?.sport || athlete?.email || ''}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm mb-3">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Plan:</span>
+                        <button onClick={() => plan && navigate(`/plans/${plan.id}`)}
+                          className="text-blue-600 font-medium truncate max-w-[60%] text-right">
+                          {plan?.name || 'Plan eliminado'}
+                        </button>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Inicio:</span>
+                        <span className="text-slate-700">{format(new Date(assignment.startDate), 'd MMM yyyy', { locale: es })}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Estado:</span>
+                        <select value={assignment.status} onChange={(e) => handleStatusChange(assignment.id, e.target.value)}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+                          <option value="pending">Pendiente</option>
+                          <option value="active">Activo</option>
+                          <option value="paused">Pausado</option>
+                          <option value="completed">Completado</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                      {plan && (
+                        <button onClick={() => handleDownloadPDF(assignment.id)}
+                          className="flex-1 py-2 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 flex items-center justify-center gap-1">
+                          <Download className="w-3.5 h-3.5" /> PDF
+                        </button>
+                      )}
+                      <button onClick={() => setDeleteId(assignment.id)}
+                        className="flex-1 py-2 text-xs text-red-500 border border-red-200 rounded-lg hover:bg-red-50 flex items-center justify-center gap-1">
+                        <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                      </button>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
-          </Card>
+          </>
         )}
       </div>
 

@@ -3,6 +3,7 @@ export interface User {
   email: string;
   name: string;
   role: 'trainer' | 'admin';
+  status?: 'pending' | 'active' | 'suspended';
   avatar?: string;
   phone?: string;
   bio?: string;

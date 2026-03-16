@@ -79,7 +79,7 @@ export const Dashboard: React.FC = () => {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
@@ -164,7 +164,7 @@ export const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Recent Athletes */}
           <Card padding="none">
-            <div className="p-6 border-b border-slate-100">
+            <div className="p-4 sm:p-6 border-b border-slate-100">
               <div className="flex items-center justify-between">
                 <CardTitle>Últimos Deportistas</CardTitle>
                 <button
@@ -194,7 +194,7 @@ export const Dashboard: React.FC = () => {
                   return (
                     <div
                       key={athlete.id}
-                      className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50 cursor-pointer transition-colors"
+                      className="flex items-center gap-3 px-4 sm:px-6 py-3 sm:py-4 hover:bg-slate-50 cursor-pointer transition-colors"
                       onClick={() => navigate(`/athletes/${athlete.id}`)}
                     >
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
@@ -219,7 +219,7 @@ export const Dashboard: React.FC = () => {
 
           {/* Recent Plans */}
           <Card padding="none">
-            <div className="p-6 border-b border-slate-100">
+            <div className="p-4 sm:p-6 border-b border-slate-100">
               <div className="flex items-center justify-between">
                 <CardTitle>Planes Recientes</CardTitle>
                 <button
@@ -248,7 +248,7 @@ export const Dashboard: React.FC = () => {
                   return (
                     <div
                       key={plan.id}
-                      className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50 cursor-pointer transition-colors"
+                      className="flex items-center gap-3 px-4 sm:px-6 py-3 sm:py-4 hover:bg-slate-50 cursor-pointer transition-colors"
                       onClick={() => navigate(`/plans/${plan.id}`)}
                     >
                       <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center flex-shrink-0">

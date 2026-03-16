@@ -21,7 +21,7 @@ interface AppState {
   customExercises: Exercise[];
 
   // Auth actions
-  login: (email: string, password: string) => boolean;
+  login: (email: string, password: string) => 'ok' | 'pending' | 'suspended' | 'invalid';
   logout: () => void;
   register: (name: string, email: string, password: string) => boolean;
   updateProfile: (data: Partial<User>) => void;
@@ -31,6 +31,8 @@ interface AppState {
   createTrainerAccount: (name: string, email: string, password: string) => boolean;
   deleteAccount: (userId: string) => void;
   updateAccountUser: (userId: string, data: Partial<User>) => void;
+  approveUser: (userId: string) => void;
+  suspendUser: (userId: string) => void;
 
   // Athlete actions
   addAthlete: (athlete: Omit<Athlete, 'id' | 'createdAt' | 'trainerId'>) => Athlete;
@@ -93,11 +95,14 @@ export const useStore = create<AppState>()(
           (a) => a.email.toLowerCase() === email.toLowerCase() && a.password === password
         );
 
-        if (account) {
-          set({ currentUser: account.user, isAuthenticated: true });
-          return true;
-        }
-        return false;
+        if (!account) return 'invalid';
+
+        const status = account.user.status ?? 'active'; // built-in accounts have no status = active
+        if (status === 'pending') return 'pending';
+        if (status === 'suspended') return 'suspended';
+
+        set({ currentUser: account.user, isAuthenticated: true });
+        return 'ok';
       },
 
       logout: () => set({ currentUser: null, isAuthenticated: false }),
@@ -118,12 +123,13 @@ export const useStore = create<AppState>()(
           email,
           name,
           role: 'trainer',
+          status: 'pending',
           createdAt: new Date().toISOString(),
         };
 
         storedAccounts.push({ email, password, user: newUser });
         localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
-        set({ currentUser: newUser, isAuthenticated: true });
+        // Do NOT set isAuthenticated — user must wait for admin approval
         return true;
       },
 
@@ -176,6 +182,28 @@ export const useStore = create<AppState>()(
         const idx = storedAccounts.findIndex((a) => a.user.id === userId);
         if (idx >= 0) {
           storedAccounts[idx].user = { ...storedAccounts[idx].user, ...data };
+          localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+        }
+      },
+
+      approveUser: (userId) => {
+        const storedAccounts = JSON.parse(
+          localStorage.getItem('apd-accounts') || '[]'
+        ) as StoredAccount[];
+        const idx = storedAccounts.findIndex((a) => a.user.id === userId);
+        if (idx >= 0) {
+          storedAccounts[idx].user = { ...storedAccounts[idx].user, status: 'active' };
+          localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+        }
+      },
+
+      suspendUser: (userId) => {
+        const storedAccounts = JSON.parse(
+          localStorage.getItem('apd-accounts') || '[]'
+        ) as StoredAccount[];
+        const idx = storedAccounts.findIndex((a) => a.user.id === userId);
+        if (idx >= 0) {
+          storedAccounts[idx].user = { ...storedAccounts[idx].user, status: 'suspended' };
           localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
         }
       },

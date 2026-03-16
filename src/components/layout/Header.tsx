@@ -12,23 +12,23 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, actions }) => {
   const { currentUser } = useStore();
 
   return (
-    <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">{title}</h1>
-        {subtitle && <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>}
+    <header className="bg-white border-b border-slate-200 pl-16 lg:pl-6 pr-4 sm:pr-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <h1 className="text-lg sm:text-xl font-bold text-slate-800 truncate">{title}</h1>
+        {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-0.5 truncate">{subtitle}</p>}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         {actions}
-        <button className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative">
+        <button className="hidden sm:flex p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
           <Bell className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+        <div className="flex items-center gap-2 sm:pl-3 sm:border-l sm:border-slate-200">
+          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
             {currentUser?.name?.charAt(0).toUpperCase() || 'A'}
           </div>
-          <div className="hidden sm:block">
-            <p className="text-sm font-medium text-slate-700">{currentUser?.name}</p>
-            <p className="text-xs text-slate-500">Entrenador Personal</p>
+          <div className="hidden lg:block">
+            <p className="text-sm font-medium text-slate-700 whitespace-nowrap">{currentUser?.name}</p>
+            <p className="text-xs text-slate-500">{currentUser?.role === 'admin' ? 'Administrador' : 'Entrenador'}</p>
           </div>
         </div>
       </div>
