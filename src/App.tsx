@@ -8,9 +8,13 @@ import { AthleteDetail } from './pages/AthleteDetail';
 import { Plans } from './pages/Plans';
 import { PlanDetail } from './pages/PlanDetail';
 import { PlanBuilder } from './pages/PlanBuilder';
+import { AutoPlanGenerator } from './pages/AutoPlanGenerator';
 import { Exercises } from './pages/Exercises';
 import { Assignments } from './pages/Assignments';
 import { Settings } from './pages/Settings';
+import { Nutrition } from './pages/Nutrition';
+import { NutritionGenerator } from './pages/NutritionGenerator';
+import { NutritionPlanDetail } from './pages/NutritionPlanDetail';
 import { AdminPanel } from './pages/admin/AdminPanel';
 import { useStore } from './store/useStore';
 
@@ -38,10 +42,14 @@ const App: React.FC = () => {
         <Route path="/athletes/:id" element={<ProtectedRoute><AthleteDetail /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/plans/new" element={<ProtectedRoute><PlanBuilder /></ProtectedRoute>} />
+        <Route path="/plans/auto" element={<ProtectedRoute><AutoPlanGenerator /></ProtectedRoute>} />
         <Route path="/plans/:id" element={<ProtectedRoute><PlanDetail /></ProtectedRoute>} />
         <Route path="/plans/:id/edit" element={<ProtectedRoute><PlanBuilder /></ProtectedRoute>} />
         <Route path="/exercises" element={<ProtectedRoute><Exercises /></ProtectedRoute>} />
         <Route path="/assignments" element={<ProtectedRoute><Assignments /></ProtectedRoute>} />
+        <Route path="/nutrition" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
+        <Route path="/nutrition/generator" element={<ProtectedRoute><NutritionGenerator /></ProtectedRoute>} />
+        <Route path="/nutrition/plan/:id" element={<ProtectedRoute><NutritionPlanDetail /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

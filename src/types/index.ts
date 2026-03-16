@@ -136,6 +136,117 @@ export const MUSCLE_GROUPS = [
 
 export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
 
+// ── NUTRITION TYPES ────────────────────────────────────────────────────────
+export interface NutritionProfile {
+  id: string;
+  athleteId?: string;
+  trainerId: string;
+  // Personal data
+  age: number;
+  gender: 'male' | 'female';
+  weight: number; // kg
+  height: number; // cm
+  bodyFat?: number; // %
+  // Activity & goals
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  goal: 'lose_weight' | 'maintain' | 'gain_muscle' | 'performance' | 'health';
+  weightGoal?: number; // target kg
+  // Dietary preferences
+  dietType: 'omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean';
+  allergies: string[];
+  intolerances: string[];
+  dislikedFoods: string[];
+  mealsPerDay: 2 | 3 | 4 | 5 | 6;
+  budget: 'low' | 'medium' | 'high';
+  cookingTime: 'minimal' | 'moderate' | 'extensive';
+  // Calculated macros
+  tdee?: number; // kcal/day
+  targetCalories?: number;
+  targetProtein?: number; // g
+  targetCarbs?: number; // g
+  targetFat?: number; // g
+  createdAt: string;
+}
+
+export interface FoodItem {
+  id: string;
+  name: string;
+  category: 'protein' | 'carbs' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'legume' | 'nuts' | 'condiment';
+  calories: number; // per 100g
+  protein: number; // g per 100g
+  carbs: number; // g per 100g
+  fat: number; // g per 100g
+  fiber?: number; // g per 100g
+  isSpanish?: boolean;
+  season?: ('spring' | 'summer' | 'autumn' | 'winter' | 'all')[];
+  dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean')[];
+}
+
+export interface RecipeIngredient {
+  foodId: string;
+  foodName: string;
+  quantity: number; // grams
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  category: 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'pre_workout' | 'post_workout';
+  servings: number;
+  prepTime: number; // minutes
+  cookTime: number; // minutes
+  difficulty: 'easy' | 'medium' | 'hard';
+  ingredients: RecipeIngredient[];
+  instructions: string[];
+  // Nutritional info per serving (calculated)
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+  dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean')[];
+  tags: string[];
+  isSpanish?: boolean;
+  region?: string; // Spanish region if applicable
+  budget: 'low' | 'medium' | 'high';
+}
+
+export interface MealPlan {
+  mealType: 'breakfast' | 'mid_morning' | 'lunch' | 'snack' | 'dinner' | 'pre_workout' | 'post_workout';
+  recipeId: string;
+  recipeName: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+export interface DayMenu {
+  dayNumber: number;
+  dayName: string;
+  meals: MealPlan[];
+  totalCalories: number;
+  totalProtein: number;
+  totalCarbs: number;
+  totalFat: number;
+}
+
+export interface NutritionPlan {
+  id: string;
+  trainerId: string;
+  athleteId?: string;
+  profileId: string;
+  name: string;
+  weeks: number;
+  days: DayMenu[];
+  targetCalories: number;
+  targetProtein: number;
+  targetCarbs: number;
+  targetFat: number;
+  notes?: string;
+  createdAt: string;
+}
+
 export const EQUIPMENT_LIST = [
   'Sin Equipo',
   'Barra',

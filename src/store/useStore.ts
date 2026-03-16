@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise } from '../types';
+import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan } from '../types';
 import { EXERCISES_DB } from '../data/exercises';
 
 export interface StoredAccount {
@@ -56,6 +56,15 @@ interface AppState {
   // Exercise actions
   addCustomExercise: (exercise: Omit<Exercise, 'id'>) => Exercise;
   getAllExercises: () => Exercise[];
+
+  // Nutrition actions
+  nutritionProfiles: NutritionProfile[];
+  nutritionPlans: NutritionPlan[];
+  addNutritionProfile: (profile: Omit<NutritionProfile, 'id'>) => NutritionProfile;
+  deleteNutritionProfile: (id: string) => void;
+  addNutritionPlan: (plan: Omit<NutritionPlan, 'id'>) => NutritionPlan;
+  deleteNutritionPlan: (id: string) => void;
+  getNutritionPlan: (id: string) => NutritionPlan | undefined;
 }
 
 // Built-in accounts (not stored in localStorage, not deletable)
@@ -84,6 +93,8 @@ export const useStore = create<AppState>()(
       plans: [],
       assignments: [],
       customExercises: [],
+      nutritionProfiles: [],
+      nutritionPlans: [],
 
       login: (email, password) => {
         const storedAccounts = JSON.parse(
@@ -340,6 +351,43 @@ export const useStore = create<AppState>()(
         const { customExercises } = get();
         return [...EXERCISES_DB, ...customExercises];
       },
+
+      addNutritionProfile: (data) => {
+        const { currentUser } = get();
+        const profile: NutritionProfile = {
+          ...data,
+          id: generateId(),
+          trainerId: currentUser?.id || '',
+        };
+        set((state) => ({ nutritionProfiles: [...state.nutritionProfiles, profile] }));
+        return profile;
+      },
+
+      deleteNutritionProfile: (id) => {
+        set((state) => ({
+          nutritionProfiles: state.nutritionProfiles.filter((p) => p.id !== id),
+          nutritionPlans: state.nutritionPlans.filter((p) => p.profileId !== id),
+        }));
+      },
+
+      addNutritionPlan: (data) => {
+        const { currentUser } = get();
+        const plan: NutritionPlan = {
+          ...data,
+          id: generateId(),
+          trainerId: currentUser?.id || '',
+        };
+        set((state) => ({ nutritionPlans: [...state.nutritionPlans, plan] }));
+        return plan;
+      },
+
+      deleteNutritionPlan: (id) => {
+        set((state) => ({
+          nutritionPlans: state.nutritionPlans.filter((p) => p.id !== id),
+        }));
+      },
+
+      getNutritionPlan: (id) => get().nutritionPlans.find((p) => p.id === id),
     } as AppState),
     {
       name: 'apd-sport-storage',
@@ -350,6 +398,8 @@ export const useStore = create<AppState>()(
         plans: state.plans,
         assignments: state.assignments,
         customExercises: state.customExercises,
+        nutritionProfiles: state.nutritionProfiles,
+        nutritionPlans: state.nutritionPlans,
       }),
     }
   )

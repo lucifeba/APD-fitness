@@ -14,6 +14,8 @@ import {
   Menu,
   X,
   ShieldCheck,
+  Apple,
+  Wand2,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
@@ -21,8 +23,10 @@ const trainerNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/athletes', icon: Users, label: 'Deportistas' },
   { to: '/plans', icon: ClipboardList, label: 'Planes de Entrenamiento' },
+  { to: '/plans/auto', icon: Wand2, label: 'Plan Automático' },
   { to: '/exercises', icon: Dumbbell, label: 'Biblioteca de Ejercicios' },
   { to: '/assignments', icon: BookOpen, label: 'Asignaciones' },
+  { to: '/nutrition', icon: Apple, label: 'Nutrición' },
   { to: '/settings', icon: Settings, label: 'Configuración' },
 ];
 
@@ -31,7 +35,9 @@ const adminNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/athletes', icon: Users, label: 'Deportistas' },
   { to: '/plans', icon: ClipboardList, label: 'Planes' },
+  { to: '/plans/auto', icon: Wand2, label: 'Plan Automático' },
   { to: '/exercises', icon: Dumbbell, label: 'Ejercicios' },
+  { to: '/nutrition', icon: Apple, label: 'Nutrición' },
   { to: '/settings', icon: Settings, label: 'Configuración' },
 ];
 

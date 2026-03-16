@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Search, ClipboardList, Copy, Trash2, Edit3, Eye, FileDown
+  Plus, Search, ClipboardList, Copy, Trash2, Edit3, Eye, FileDown, Wand2
 } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { Header } from '../components/layout/Header';
@@ -65,9 +65,14 @@ export const Plans: React.FC = () => {
         title="Planes de Entrenamiento"
         subtitle={`${plans.length} planes creados`}
         actions={
-          <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate('/plans/new')}>
-            Nuevo Plan
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" icon={<Wand2 className="w-4 h-4" />} onClick={() => navigate('/plans/auto')}>
+              Plan Automático
+            </Button>
+            <Button icon={<Plus className="w-4 h-4" />} onClick={() => navigate('/plans/new')}>
+              Nuevo Plan
+            </Button>
+          </div>
         }
       />
 
