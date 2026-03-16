@@ -25,7 +25,7 @@ export const Login: React.FC = () => {
     if (ok) {
       navigate('/dashboard');
     } else {
-      setError('Email o contraseña incorrectos. Usa demo@apdsport.com / demo1234');
+      setError('Email o contraseña incorrectos. Verifica tus credenciales.');
     }
   };
 
@@ -162,12 +162,6 @@ export const Login: React.FC = () => {
               </Link>
             </p>
 
-            {/* Demo hint */}
-            <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-              <p className="text-xs text-blue-600 font-medium mb-1">Cuenta Demo</p>
-              <p className="text-xs text-blue-500">Email: demo@apdsport.com</p>
-              <p className="text-xs text-blue-500">Contraseña: demo1234</p>
-            </div>
           </div>
         </div>
       </div>

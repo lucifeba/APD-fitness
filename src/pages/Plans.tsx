@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Search, ClipboardList, Copy, Trash2, Edit3, Eye
+  Plus, Search, ClipboardList, Copy, Trash2, Edit3, Eye, FileDown
 } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { Header } from '../components/layout/Header';
@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../components/ui/Modal';
 import { useStore } from '../store/useStore';
 import { useToast } from '../hooks/useToast';
 import { ToastContainer } from '../components/ui/Toast';
+import { generatePlanPDF } from '../lib/pdf';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -41,6 +42,18 @@ export const Plans: React.FC = () => {
     deletePlan(id);
     toast.success('Plan eliminado');
     setDeleteId(null);
+  };
+
+  const handleDownloadPDF = (planId: string) => {
+    const plan = plans.find((p) => p.id === planId);
+    if (!plan) return;
+    try {
+      const doc = generatePlanPDF(plan);
+      doc.save(`${plan.name.replace(/\s+/g, '_')}.pdf`);
+      toast.success('PDF descargado correctamente');
+    } catch {
+      toast.error('Error al generar el PDF');
+    }
   };
 
   const getPlanAthleteCount = (planId: string) =>
@@ -158,6 +171,13 @@ export const Plans: React.FC = () => {
                         title="Duplicar"
                       >
                         <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDownloadPDF(plan.id)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                        title="Descargar PDF"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setDeleteId(plan.id)}

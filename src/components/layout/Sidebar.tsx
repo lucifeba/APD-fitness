@@ -13,15 +13,25 @@ import {
   Award,
   Menu,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
-const navItems = [
+const trainerNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/athletes', icon: Users, label: 'Deportistas' },
   { to: '/plans', icon: ClipboardList, label: 'Planes de Entrenamiento' },
   { to: '/exercises', icon: Dumbbell, label: 'Biblioteca de Ejercicios' },
   { to: '/assignments', icon: BookOpen, label: 'Asignaciones' },
+  { to: '/settings', icon: Settings, label: 'Configuración' },
+];
+
+const adminNavItems = [
+  { to: '/admin', icon: ShieldCheck, label: 'Panel Admin' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/athletes', icon: Users, label: 'Deportistas' },
+  { to: '/plans', icon: ClipboardList, label: 'Planes' },
+  { to: '/exercises', icon: Dumbbell, label: 'Ejercicios' },
   { to: '/settings', icon: Settings, label: 'Configuración' },
 ];
 
@@ -32,6 +42,7 @@ export const Sidebar: React.FC<{ collapsed: boolean; onToggle: () => void }> = (
   const { currentUser, logout } = useStore();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navItems = currentUser?.role === 'admin' ? adminNavItems : trainerNavItems;
 
   const handleLogout = () => {
     logout();
@@ -105,7 +116,9 @@ export const Sidebar: React.FC<{ collapsed: boolean; onToggle: () => void }> = (
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{currentUser?.name}</p>
-              <p className="text-blue-200 text-xs truncate">{currentUser?.email}</p>
+              <p className="text-blue-200 text-xs truncate">
+                {currentUser?.role === 'admin' ? '⚡ Administrador' : currentUser?.email}
+              </p>
             </div>
           )}
         </div>

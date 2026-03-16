@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/auth/Login';
 import { Register } from './pages/auth/Register';
 import { Dashboard } from './pages/Dashboard';
@@ -11,6 +11,7 @@ import { PlanBuilder } from './pages/PlanBuilder';
 import { Exercises } from './pages/Exercises';
 import { Assignments } from './pages/Assignments';
 import { Settings } from './pages/Settings';
+import { AdminPanel } from './pages/admin/AdminPanel';
 import { useStore } from './store/useStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -19,9 +20,16 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, currentUser } = useStore();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (currentUser?.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+};
+
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
@@ -35,10 +43,11 @@ const App: React.FC = () => {
         <Route path="/exercises" element={<ProtectedRoute><Exercises /></ProtectedRoute>} />
         <Route path="/assignments" element={<ProtectedRoute><Assignments /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+        <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 };
 

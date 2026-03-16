@@ -3,6 +3,12 @@ import { persist } from 'zustand/middleware';
 import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise } from '../types';
 import { EXERCISES_DB } from '../data/exercises';
 
+export interface StoredAccount {
+  email: string;
+  password: string;
+  user: User;
+}
+
 interface AppState {
   // Auth
   currentUser: User | null;
@@ -19,6 +25,12 @@ interface AppState {
   logout: () => void;
   register: (name: string, email: string, password: string) => boolean;
   updateProfile: (data: Partial<User>) => void;
+
+  // Admin actions
+  getAllAccounts: () => StoredAccount[];
+  createTrainerAccount: (name: string, email: string, password: string) => boolean;
+  deleteAccount: (userId: string) => void;
+  updateAccountUser: (userId: string, data: Partial<User>) => void;
 
   // Athlete actions
   addAthlete: (athlete: Omit<Athlete, 'id' | 'createdAt' | 'trainerId'>) => Athlete;
@@ -44,18 +56,17 @@ interface AppState {
   getAllExercises: () => Exercise[];
 }
 
-// Dummy accounts for demo
-const DEMO_ACCOUNTS: Array<{ email: string; password: string; user: User }> = [
+// Built-in accounts (not stored in localStorage, not deletable)
+const BUILTIN_ACCOUNTS: StoredAccount[] = [
   {
-    email: 'demo@apdsport.com',
-    password: 'demo1234',
+    email: 'admin@apdsport.com',
+    password: 'Admin2024!',
     user: {
-      id: 'trainer-demo',
-      email: 'demo@apdsport.com',
-      name: 'Entrenador Demo',
-      role: 'trainer',
-      bio: 'Entrenador personal APD SPORT',
-      createdAt: new Date().toISOString(),
+      id: 'admin-001',
+      email: 'admin@apdsport.com',
+      name: 'Administrador',
+      role: 'admin',
+      createdAt: new Date(0).toISOString(),
     },
   },
 ];
@@ -73,12 +84,11 @@ export const useStore = create<AppState>()(
       customExercises: [],
 
       login: (email, password) => {
-        // Check stored accounts
         const storedAccounts = JSON.parse(
           localStorage.getItem('apd-accounts') || '[]'
-        ) as Array<{ email: string; password: string; user: User }>;
+        ) as StoredAccount[];
 
-        const allAccounts = [...DEMO_ACCOUNTS, ...storedAccounts];
+        const allAccounts = [...BUILTIN_ACCOUNTS, ...storedAccounts];
         const account = allAccounts.find(
           (a) => a.email.toLowerCase() === email.toLowerCase() && a.password === password
         );
@@ -95,9 +105,10 @@ export const useStore = create<AppState>()(
       register: (name, email, password) => {
         const storedAccounts = JSON.parse(
           localStorage.getItem('apd-accounts') || '[]'
-        ) as Array<{ email: string; password: string; user: User }>;
+        ) as StoredAccount[];
 
-        const exists = storedAccounts.some(
+        const allAccounts = [...BUILTIN_ACCOUNTS, ...storedAccounts];
+        const exists = allAccounts.some(
           (a) => a.email.toLowerCase() === email.toLowerCase()
         );
         if (exists) return false;
@@ -116,6 +127,59 @@ export const useStore = create<AppState>()(
         return true;
       },
 
+      getAllAccounts: () => {
+        const storedAccounts = JSON.parse(
+          localStorage.getItem('apd-accounts') || '[]'
+        ) as StoredAccount[];
+        return [...BUILTIN_ACCOUNTS, ...storedAccounts];
+      },
+
+      createTrainerAccount: (name, email, password) => {
+        const storedAccounts = JSON.parse(
+          localStorage.getItem('apd-accounts') || '[]'
+        ) as StoredAccount[];
+        const allAccounts = [...BUILTIN_ACCOUNTS, ...storedAccounts];
+        const exists = allAccounts.some(
+          (a) => a.email.toLowerCase() === email.toLowerCase()
+        );
+        if (exists) return false;
+        const newUser: User = {
+          id: generateId(),
+          email,
+          name,
+          role: 'trainer',
+          createdAt: new Date().toISOString(),
+        };
+        storedAccounts.push({ email, password, user: newUser });
+        localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+        return true;
+      },
+
+      deleteAccount: (userId) => {
+        const storedAccounts = JSON.parse(
+          localStorage.getItem('apd-accounts') || '[]'
+        ) as StoredAccount[];
+        const updated = storedAccounts.filter((a) => a.user.id !== userId);
+        localStorage.setItem('apd-accounts', JSON.stringify(updated));
+        // Also remove their data
+        set((state) => ({
+          athletes: state.athletes.filter((a) => a.trainerId !== userId),
+          plans: state.plans.filter((p) => p.trainerId !== userId),
+          assignments: state.assignments.filter((a) => a.trainerId !== userId),
+        }));
+      },
+
+      updateAccountUser: (userId, data) => {
+        const storedAccounts = JSON.parse(
+          localStorage.getItem('apd-accounts') || '[]'
+        ) as StoredAccount[];
+        const idx = storedAccounts.findIndex((a) => a.user.id === userId);
+        if (idx >= 0) {
+          storedAccounts[idx].user = { ...storedAccounts[idx].user, ...data };
+          localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+        }
+      },
+
       updateProfile: (data) => {
         const { currentUser } = get();
         if (!currentUser) return;
@@ -125,7 +189,7 @@ export const useStore = create<AppState>()(
         // Update stored account
         const storedAccounts = JSON.parse(
           localStorage.getItem('apd-accounts') || '[]'
-        ) as Array<{ email: string; password: string; user: User }>;
+        ) as StoredAccount[];
         const idx = storedAccounts.findIndex((a) => a.user.id === currentUser.id);
         if (idx >= 0) {
           storedAccounts[idx].user = updated;
