@@ -4,10 +4,9 @@ import { Layout } from '../components/layout/Layout';
 import { useStore } from '../store/useStore';
 import { RECIPES_DB } from '../data/nutrition';
 import type { NutritionProfile, NutritionPlan, DayMenu, MealPlan, Recipe } from '../types';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {
   ChefHat, ChevronRight, ChevronLeft, CheckCircle2,
-  Scale, Target, Utensils, Heart, AlertTriangle, Apple,
+  Scale, Target, Utensils, Heart, AlertTriangle, Apple, Settings, Calculator,
 } from 'lucide-react';
 
 // ── Cálculo de macros ─────────────────────────────────────────────────────────
@@ -149,6 +148,15 @@ interface NutritionProfileForm {
   cookingTime: 'minimal' | 'moderate' | 'extensive';
   planName: string;
   weeks: number;
+  // Manual macro override
+  manualMode: boolean;
+  manualCalories: number;
+  manualProteinG: number;
+  manualCarbsG: number;
+  manualFatG: number;
+  manualProteinPct: number;
+  manualCarbsPct: number;
+  manualFatPct: number;
 }
 
 const INITIAL: NutritionProfileForm = {
@@ -167,6 +175,14 @@ const INITIAL: NutritionProfileForm = {
   cookingTime: 'moderate',
   planName: '',
   weeks: 4,
+  manualMode: false,
+  manualCalories: 0,
+  manualProteinG: 0,
+  manualCarbsG: 0,
+  manualFatG: 0,
+  manualProteinPct: 30,
+  manualCarbsPct: 45,
+  manualFatPct: 25,
 };
 
 const GOAL_LABELS: Record<NutritionProfileForm['goal'], string> = {
@@ -203,9 +219,21 @@ export const NutritionGenerator: React.FC = () => {
   const calcPreview = () => {
     const bmr = calcBMR(form.weight, form.height, form.age, form.gender);
     const tdee = calcTDEE(bmr, form.activityLevel);
-    const targetCalories = calcTargetCalories(tdee, form.goal);
-    const { protein, fat, carbs } = calcMacros(targetCalories, form.weight, form.goal);
-    setPreview({ calories: targetCalories, protein, fat, carbs });
+    const autoCalories = calcTargetCalories(tdee, form.goal);
+    const { protein, fat, carbs } = calcMacros(autoCalories, form.weight, form.goal);
+    const initialCalories = form.manualMode && form.manualCalories > 0 ? form.manualCalories : autoCalories;
+    // Initialize manual fields from auto calculation if not yet set
+    setForm(f => ({
+      ...f,
+      manualCalories: f.manualCalories > 0 ? f.manualCalories : autoCalories,
+      manualProteinG: f.manualProteinG > 0 ? f.manualProteinG : protein,
+      manualCarbsG: f.manualCarbsG > 0 ? f.manualCarbsG : carbs,
+      manualFatG: f.manualFatG > 0 ? f.manualFatG : fat,
+      manualProteinPct: f.manualProteinG > 0 ? f.manualProteinPct : Math.round((protein * 4 / autoCalories) * 100),
+      manualCarbsPct: f.manualCarbsG > 0 ? f.manualCarbsPct : Math.round((carbs * 4 / autoCalories) * 100),
+      manualFatPct: f.manualFatG > 0 ? f.manualFatPct : Math.round((fat * 9 / autoCalories) * 100),
+    }));
+    setPreview({ calories: initialCalories, protein, fat, carbs });
   };
 
   const handleNext = () => {
@@ -213,11 +241,53 @@ export const NutritionGenerator: React.FC = () => {
     setStep(s => s + 1);
   };
 
+  // Manual macro helpers
+  const updateManualCalories = (kcal: number) => {
+    const p = Math.round((kcal * form.manualProteinPct / 100) / 4);
+    const c = Math.round((kcal * form.manualCarbsPct / 100) / 4);
+    const f = Math.round((kcal * form.manualFatPct / 100) / 9);
+    setForm(prev => ({ ...prev, manualCalories: kcal, manualProteinG: p, manualCarbsG: c, manualFatG: f }));
+    setPreview({ calories: kcal, protein: p, carbs: c, fat: f });
+  };
+
+  const updateManualGrams = (macro: 'protein' | 'carbs' | 'fat', grams: number) => {
+    setForm(prev => {
+      const p = macro === 'protein' ? grams : prev.manualProteinG;
+      const c = macro === 'carbs' ? grams : prev.manualCarbsG;
+      const f = macro === 'fat' ? grams : prev.manualFatG;
+      const totalCal = p * 4 + c * 4 + f * 9;
+      const pPct = totalCal > 0 ? Math.round((p * 4 / totalCal) * 100) : 0;
+      const cPct = totalCal > 0 ? Math.round((c * 4 / totalCal) * 100) : 0;
+      const fPct = totalCal > 0 ? Math.round((f * 9 / totalCal) * 100) : 0;
+      setPreview({ calories: totalCal, protein: p, carbs: c, fat: f });
+      return { ...prev, manualProteinG: p, manualCarbsG: c, manualFatG: f, manualCalories: totalCal, manualProteinPct: pPct, manualCarbsPct: cPct, manualFatPct: fPct };
+    });
+  };
+
+  const updateManualPct = (macro: 'protein' | 'carbs' | 'fat', pct: number) => {
+    setForm(prev => {
+      const kcal = prev.manualCalories || 2000;
+      const pPct = macro === 'protein' ? pct : prev.manualProteinPct;
+      const cPct = macro === 'carbs' ? pct : prev.manualCarbsPct;
+      const fPct = macro === 'fat' ? pct : prev.manualFatPct;
+      const p = Math.round((kcal * pPct / 100) / 4);
+      const c = Math.round((kcal * cPct / 100) / 4);
+      const f = Math.round((kcal * fPct / 100) / 9);
+      setPreview({ calories: kcal, protein: p, carbs: c, fat: f });
+      return { ...prev, manualProteinPct: pPct, manualCarbsPct: cPct, manualFatPct: fPct, manualProteinG: p, manualCarbsG: c, manualFatG: f };
+    });
+  };
+
   const handleGenerate = () => {
     const bmr = calcBMR(form.weight, form.height, form.age, form.gender);
     const tdee = calcTDEE(bmr, form.activityLevel);
-    const targetCalories = calcTargetCalories(tdee, form.goal);
-    const { protein, fat, carbs } = calcMacros(targetCalories, form.weight, form.goal);
+    const autoCalories = calcTargetCalories(tdee, form.goal);
+    const autoMacros = calcMacros(autoCalories, form.weight, form.goal);
+
+    const targetCalories = form.manualMode && form.manualCalories > 0 ? form.manualCalories : autoCalories;
+    const protein = form.manualMode && form.manualProteinG > 0 ? form.manualProteinG : autoMacros.protein;
+    const fat = form.manualMode && form.manualFatG > 0 ? form.manualFatG : autoMacros.fat;
+    const carbs = form.manualMode && form.manualCarbsG > 0 ? form.manualCarbsG : autoMacros.carbs;
 
     const profile: Omit<NutritionProfile, 'id'> = {
       trainerId: '',
@@ -584,8 +654,18 @@ export const NutritionGenerator: React.FC = () => {
 
                 {preview && (
                   <>
-                    <div className="bg-green-50 rounded-xl p-4">
-                      <p className="text-sm font-semibold text-green-800 mb-3">Distribución calórica calculada:</p>
+                    {/* Auto-calculated summary */}
+                    <div className={`rounded-xl p-4 ${form.manualMode ? 'bg-slate-50 border border-slate-200' : 'bg-green-50'}`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-green-800">
+                          {form.manualMode ? 'Cálculo automático (referencia):' : 'Distribución calórica calculada:'}
+                        </p>
+                        {!form.manualMode && (
+                          <span className="text-xs text-green-600 flex items-center gap-1">
+                            <Calculator className="w-3.5 h-3.5" /> Mifflin-St Jeor
+                          </span>
+                        )}
+                      </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
                           { label: 'Calorías', value: `${preview.calories} kcal`, color: 'text-slate-800' },
@@ -600,6 +680,126 @@ export const NutritionGenerator: React.FC = () => {
                         ))}
                       </div>
                     </div>
+
+                    {/* Manual override toggle */}
+                    <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-3">
+                      <div className="flex items-center gap-2">
+                        <Settings className="w-4 h-4 text-slate-500" />
+                        <span className="text-sm font-medium text-slate-700">Ajuste manual de macros</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => update('manualMode', !form.manualMode)}
+                        className={`relative w-11 h-6 rounded-full transition-colors ${form.manualMode ? 'bg-green-500' : 'bg-slate-300'}`}
+                      >
+                        <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.manualMode ? 'translate-x-5' : ''}`} />
+                      </button>
+                    </div>
+
+                    {/* Manual macro inputs */}
+                    {form.manualMode && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-4">
+                        <p className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                          <Settings className="w-4 h-4" /> Ajuste manual de necesidades energéticas
+                        </p>
+
+                        {/* Total calories */}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                            Calorías totales (kcal/día)
+                          </label>
+                          <input
+                            type="number"
+                            value={form.manualCalories || ''}
+                            min={500}
+                            max={6000}
+                            onChange={e => updateManualCalories(Number(e.target.value))}
+                            placeholder="Ej: 2200"
+                            className="w-full px-4 py-2.5 border border-blue-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                          />
+                        </div>
+
+                        {/* Macros by grams */}
+                        <div>
+                          <p className="text-xs font-semibold text-slate-600 mb-2">Por gramos (g/día):</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { key: 'protein' as const, label: 'Proteína (g)', color: 'border-blue-300 focus:ring-blue-400', val: form.manualProteinG },
+                              { key: 'carbs' as const, label: 'Carbos (g)', color: 'border-amber-300 focus:ring-amber-400', val: form.manualCarbsG },
+                              { key: 'fat' as const, label: 'Grasas (g)', color: 'border-red-300 focus:ring-red-400', val: form.manualFatG },
+                            ].map(({ key, label, color, val }) => (
+                              <div key={key}>
+                                <label className="block text-xs text-slate-500 mb-1">{label}</label>
+                                <input
+                                  type="number"
+                                  value={val || ''}
+                                  min={0}
+                                  max={1000}
+                                  onChange={e => updateManualGrams(key, Number(e.target.value))}
+                                  className={`w-full px-2 py-2 border ${color} rounded-lg text-sm focus:outline-none focus:ring-2 bg-white`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Macros by percentage */}
+                        <div>
+                          <p className="text-xs font-semibold text-slate-600 mb-2">Por porcentaje (%):</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { key: 'protein' as const, label: 'Proteína %', color: 'border-blue-300', barColor: 'bg-blue-500', val: form.manualProteinPct },
+                              { key: 'carbs' as const, label: 'Carbos %', color: 'border-amber-300', barColor: 'bg-amber-400', val: form.manualCarbsPct },
+                              { key: 'fat' as const, label: 'Grasas %', color: 'border-red-300', barColor: 'bg-red-400', val: form.manualFatPct },
+                            ].map(({ key, label, color, barColor, val }) => (
+                              <div key={key}>
+                                <label className="block text-xs text-slate-500 mb-1">{label}</label>
+                                <input
+                                  type="number"
+                                  value={val || ''}
+                                  min={0}
+                                  max={100}
+                                  onChange={e => updateManualPct(key, Number(e.target.value))}
+                                  className={`w-full px-2 py-2 border ${color} rounded-lg text-sm focus:outline-none focus:ring-2 bg-white mb-1`}
+                                />
+                                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                  <div className={`h-full ${barColor} rounded-full`} style={{ width: `${Math.min(val, 100)}%` }} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {(form.manualProteinPct + form.manualCarbsPct + form.manualFatPct) !== 100 && (
+                            <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              La suma de porcentajes es {form.manualProteinPct + form.manualCarbsPct + form.manualFatPct}% (recomendado: 100%)
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Real-time preview of manual values */}
+                        <div className="bg-white rounded-xl p-3 border border-blue-200">
+                          <p className="text-xs font-semibold text-blue-700 mb-2">Plan configurado:</p>
+                          <div className="grid grid-cols-4 gap-2 text-center">
+                            <div>
+                              <p className="text-base font-bold text-slate-800">{form.manualCalories}</p>
+                              <p className="text-xs text-slate-400">kcal</p>
+                            </div>
+                            <div>
+                              <p className="text-base font-bold text-blue-600">{form.manualProteinG}g</p>
+                              <p className="text-xs text-slate-400">prot.</p>
+                            </div>
+                            <div>
+                              <p className="text-base font-bold text-amber-500">{form.manualCarbsG}g</p>
+                              <p className="text-xs text-slate-400">carbos</p>
+                            </div>
+                            <div>
+                              <p className="text-base font-bold text-red-500">{form.manualFatG}g</p>
+                              <p className="text-xs text-slate-400">grasas</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-1.5">
                       <p className="font-semibold text-slate-700 mb-2">Resumen del perfil:</p>

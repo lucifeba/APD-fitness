@@ -75,8 +75,8 @@ export const Nutrition: React.FC = () => {
               {[
                 { label: 'Perfiles Creados', value: nutritionProfiles.length, icon: <Activity className="w-5 h-5 text-blue-500" />, bg: 'bg-blue-50' },
                 { label: 'Planes Activos', value: nutritionPlans.length, icon: <ChefHat className="w-5 h-5 text-green-500" />, bg: 'bg-green-50' },
-                { label: 'Recetas en BD', value: '32', icon: <Apple className="w-5 h-5 text-orange-500" />, bg: 'bg-orange-50' },
-                { label: 'Alimentos en BD', value: '98', icon: <BarChart3 className="w-5 h-5 text-purple-500" />, bg: 'bg-purple-50' },
+                { label: 'Recetas en BD', value: '99', icon: <Apple className="w-5 h-5 text-orange-500" />, bg: 'bg-orange-50' },
+                { label: 'Alimentos en BD', value: '420', icon: <BarChart3 className="w-5 h-5 text-purple-500" />, bg: 'bg-purple-50' },
               ].map((stat, i) => (
                 <div key={i} className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
                   <div className={`w-10 h-10 ${stat.bg} rounded-xl flex items-center justify-center mb-3`}>

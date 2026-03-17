@@ -8,9 +8,32 @@ import {
   ChevronLeft, Calendar, ChefHat, Clock,
   Flame, Beef, Wheat, Droplets, ChevronDown, ChevronUp,
   Mail, Send, FileDown, Bell, RefreshCw, X, Check,
-  CalendarClock, Smartphone,
+  CalendarClock, Smartphone, Zap, AlertTriangle, UserCheck,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import { differenceInYears } from 'date-fns';
+
+// ── Athlete TDEE calculation ───────────────────────────────────────────────────
+function calcAthleteBMR(weight: number, height: number, age: number, gender: 'male' | 'female' | 'other'): number {
+  if (gender === 'female') return 10 * weight + 6.25 * height - 5 * age - 161;
+  return 10 * weight + 6.25 * height - 5 * age + 5;
+}
+
+const LEVEL_MULTIPLIERS: Record<string, number> = {
+  beginner: 1.375,
+  intermediate: 1.55,
+  advanced: 1.725,
+  elite: 1.9,
+};
+
+function calcAthleteTDEE(athlete: { weight?: number; height?: number; birthDate?: string; gender?: string; level?: string }): number | null {
+  if (!athlete.weight || !athlete.height || !athlete.birthDate) return null;
+  const age = differenceInYears(new Date(), new Date(athlete.birthDate));
+  if (age < 10 || age > 100) return null;
+  const bmr = calcAthleteBMR(athlete.weight, athlete.height, age, (athlete.gender as any) || 'male');
+  const mult = LEVEL_MULTIPLIERS[athlete.level || 'moderate'] || 1.55;
+  return Math.round(bmr * mult);
+}
 
 const MEAL_LABELS: Record<string, string> = {
   breakfast: 'Desayuno',
@@ -115,6 +138,7 @@ export const NutritionPlanDetail: React.FC = () => {
   const [scheduleVia, setScheduleVia] = useState<('email' | 'app')[]>(['app']);
   const [emailAddress, setEmailAddress] = useState('');
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [adjustingToAthlete, setAdjustingToAthlete] = useState(false);
 
   const plan = nutritionPlans.find(p => p.id === id);
 
@@ -140,6 +164,39 @@ export const NutritionPlanDetail: React.FC = () => {
 
   // Linked athlete
   const athlete = athletes.find(a => a.id === plan.athleteId);
+
+  // Athlete TDEE calculation
+  const athleteTDEE = athlete ? calcAthleteTDEE(athlete) : null;
+  const calorieDiff = athleteTDEE ? Math.abs(athleteTDEE - plan.targetCalories) : 0;
+  const needsAdjustment = athleteTDEE !== null && calorieDiff > 100;
+
+  // ── ADJUST TO ATHLETE ENERGY NEEDS ────────────────────────────────────────
+  const handleAdjustToAthlete = () => {
+    if (!athleteTDEE || !athlete) return;
+    setAdjustingToAthlete(true);
+
+    // Keep macro % ratios but scale to athlete TDEE
+    const proteinPct = macroGoalPercents.protein / 100;
+    const carbsPct = macroGoalPercents.carbs / 100;
+    const fatPct = macroGoalPercents.fat / 100;
+
+    const newProtein = Math.round((athleteTDEE * proteinPct) / 4);
+    const newCarbs = Math.round((athleteTDEE * carbsPct) / 4);
+    const newFat = Math.round((athleteTDEE * fatPct) / 9);
+
+    updateNutritionPlan(plan.id, {
+      targetCalories: athleteTDEE,
+      targetProtein: newProtein,
+      targetCarbs: newCarbs,
+      targetFat: newFat,
+    });
+
+    setTimeout(() => {
+      setAdjustingToAthlete(false);
+      setActionStatus(`Plan ajustado a las necesidades de ${athlete.name}: ${athleteTDEE} kcal`);
+      setTimeout(() => setActionStatus(null), 4000);
+    }, 400);
+  };
 
   // Scheduled sends for this plan
   const myScheduled = scheduledSends.filter(s => s.nutritionPlanId === plan.id && !s.sent);
@@ -377,6 +434,40 @@ export const NutritionPlanDetail: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Athlete energy needs banner */}
+        {athlete && athleteTDEE && needsAdjustment && (
+          <div className="mb-5 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 sm:mt-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">Desajuste energético detectado</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                El plan tiene <strong>{plan.targetCalories} kcal</strong>, pero las necesidades energéticas calculadas de <strong>{athlete.name}</strong> son <strong>{athleteTDEE} kcal</strong> (diferencia: {calorieDiff > 0 ? '+' : ''}{plan.targetCalories - athleteTDEE} kcal).
+              </p>
+              {athlete.weight && athlete.height && athlete.birthDate ? null : (
+                <p className="text-xs text-amber-600 mt-1">Datos insuficientes del deportista para cálculo completo (se necesita peso, talla y fecha de nacimiento).</p>
+              )}
+            </div>
+            <button
+              onClick={handleAdjustToAthlete}
+              disabled={adjustingToAthlete}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition disabled:opacity-60 shrink-0"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {adjustingToAthlete ? 'Ajustando...' : 'Ajustar al Deportista'}
+            </button>
+          </div>
+        )}
+
+        {/* Athlete energy info (no adjustment needed) */}
+        {athlete && athleteTDEE && !needsAdjustment && (
+          <div className="mb-5 bg-green-50 border border-green-200 rounded-2xl p-3 flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-green-600 shrink-0" />
+            <p className="text-xs text-green-700">
+              Plan ajustado correctamente a las necesidades de <strong>{athlete.name}</strong> ({athleteTDEE} kcal estimadas · diferencia ≤ 100 kcal).
+            </p>
           </div>
         )}
 
