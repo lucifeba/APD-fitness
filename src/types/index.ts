@@ -308,6 +308,110 @@ export interface NutritionPlan {
   createdAt: string;
 }
 
+// ── NOTIFICATIONS ────────────────────────────────────────────────────────────
+export interface AppNotification {
+  id: string;
+  recipientId: string; // userId who receives this notification
+  senderId: string;    // userId who triggered it
+  senderName: string;
+  type: 'plan_assigned' | 'nutrition_sent' | 'message' | 'feedback_submitted' | 'feedback_request' | 'plan_updated' | 'system';
+  title: string;
+  body: string;
+  read: boolean;
+  link?: string; // optional navigation link
+  createdAt: string;
+}
+
+// ── CHAT ─────────────────────────────────────────────────────────────────────
+export type ChatAttachment = {
+  name: string;
+  type: 'image' | 'pdf' | 'file';
+  url: string; // base64 data URL or blob URL
+  size: number; // bytes
+};
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'trainer' | 'admin';
+  recipientId: string; // 'ALL' for broadcast
+  recipientName: string;
+  text: string;
+  attachments?: ChatAttachment[];
+  isSystemMessage?: boolean;
+  read: boolean;
+  createdAt: string;
+}
+
+export interface ChatConversation {
+  id: string; // usually `${userId1}_${userId2}` sorted
+  participantIds: string[];
+  participantNames: string[];
+  lastMessage?: string;
+  lastMessageAt?: string;
+  unreadCount: number;
+}
+
+// ── WEEKLY FEEDBACK ───────────────────────────────────────────────────────────
+export interface FeedbackQuestion {
+  id: string;
+  label: string;
+  type: 'scale' | 'text' | 'yesno' | 'multiselect';
+  options?: string[]; // for multiselect
+  min?: number;       // for scale
+  max?: number;
+}
+
+export const FEEDBACK_QUESTIONS: FeedbackQuestion[] = [
+  { id: 'sleep_quality', label: '¿Cómo valorarías la calidad de tu sueño esta semana? (1=muy malo, 10=excelente)', type: 'scale', min: 1, max: 10 },
+  { id: 'sleep_hours', label: '¿Cuántas horas dormiste de media por noche?', type: 'scale', min: 1, max: 12 },
+  { id: 'energy_level', label: '¿Cuál fue tu nivel de energía general? (1=agotado, 10=muy activo)', type: 'scale', min: 1, max: 10 },
+  { id: 'stress_level', label: '¿Nivel de estrés esta semana? (1=muy bajo, 10=muy alto)', type: 'scale', min: 1, max: 10 },
+  { id: 'adherence_training', label: '¿Seguiste el plan de entrenamiento? (1=nada, 10=completamente)', type: 'scale', min: 1, max: 10 },
+  { id: 'adherence_nutrition', label: '¿Seguiste el plan nutricional? (1=nada, 10=completamente)', type: 'scale', min: 1, max: 10 },
+  { id: 'training_sessions', label: '¿Cuántas sesiones de entrenamiento realizaste?', type: 'scale', min: 0, max: 14 },
+  { id: 'muscle_soreness', label: '¿Experimentaste agujetas o dolor muscular? (1=ninguno, 10=muy intenso)', type: 'scale', min: 1, max: 10 },
+  { id: 'motivation', label: '¿Cuál fue tu motivación esta semana? (1=muy baja, 10=muy alta)', type: 'scale', min: 1, max: 10 },
+  { id: 'hydration', label: '¿Bebiste suficiente agua? (1=muy poco, 10=muy bien)', type: 'scale', min: 1, max: 10 },
+  { id: 'digestion', label: '¿Cómo fue tu digestión en general? (1=muy mala, 10=excelente)', type: 'scale', min: 1, max: 10 },
+  { id: 'injuries', label: '¿Tuviste alguna lesión o molestia esta semana?', type: 'yesno' },
+  { id: 'injury_details', label: 'Si tuviste molestias, descríbelas brevemente', type: 'text' },
+  { id: 'diet_difficulties', label: '¿Tuviste dificultades para seguir la dieta?', type: 'multiselect', options: ['Falta de tiempo', 'No me gustó la comida', 'Viajé o comí fuera', 'Coste económico', 'Ansiedad/antojos', 'Náuseas o malestar', 'Ninguna'] },
+  { id: 'body_weight', label: '¿Cuánto pesaste esta semana? (kg)', type: 'text' },
+  { id: 'mood', label: '¿Cómo describirías tu estado de ánimo general?', type: 'multiselect', options: ['Muy positivo', 'Positivo', 'Neutral', 'Algo bajo', 'Muy bajo', 'Ansioso', 'Irritable'] },
+  { id: 'highlights', label: '¿Cuál fue tu mayor logro o punto positivo de la semana?', type: 'text' },
+  { id: 'difficulties', label: '¿Cuál fue el mayor desafío o dificultad de la semana?', type: 'text' },
+  { id: 'trainer_feedback', label: '¿Hay algo que quieras comentar o preguntar a tu entrenador?', type: 'text' },
+];
+
+export interface WeeklyFeedback {
+  id: string;
+  athleteId: string;
+  athleteName: string;
+  trainerId: string;
+  weekNumber: number;
+  weekStartDate: string;
+  weekEndDate: string;
+  answers: Record<string, string | number | string[]>;
+  submittedAt: string;
+  readByTrainer: boolean;
+}
+
+// ── SCHEDULED NUTRITION SEND ─────────────────────────────────────────────────
+export interface ScheduledNutritionSend {
+  id: string;
+  nutritionPlanId: string;
+  athleteId: string;
+  trainerId: string;
+  scheduledDate: string; // ISO date string
+  sendVia: ('email' | 'app')[];
+  sent: boolean;
+  sentAt?: string;
+  createdAt: string;
+}
+
 export const EQUIPMENT_LIST = [
   'Sin Equipo',
   'Barra',

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan, PendingPatient, PatientAnamnesis } from '../types';
+import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan, PendingPatient, PatientAnamnesis, AppNotification, ChatMessage, WeeklyFeedback, ScheduledNutritionSend } from '../types';
 import { EXERCISES_DB } from '../data/exercises';
 
 export interface StoredAccount {
@@ -71,6 +71,35 @@ interface AppState {
   getPendingPatient: (token: string) => PendingPatient | undefined;
   removePendingPatient: (token: string) => void;
   registerPatientFromAnamnesis: (token: string, anamnesis: PatientAnamnesis) => boolean;
+
+  // Notification actions
+  notifications: AppNotification[];
+  addNotification: (n: Omit<AppNotification, 'id' | 'createdAt' | 'read'>) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: (recipientId: string) => void;
+  deleteNotification: (id: string) => void;
+  getUnreadCount: (recipientId: string) => number;
+
+  // Chat actions
+  chatMessages: ChatMessage[];
+  sendChatMessage: (msg: Omit<ChatMessage, 'id' | 'createdAt' | 'read'>) => ChatMessage;
+  markMessagesRead: (conversationId: string, userId: string) => void;
+  getConversationMessages: (userId1: string, userId2: string) => ChatMessage[];
+  getUnreadMessagesCount: (userId: string) => number;
+
+  // Feedback actions
+  feedbacks: WeeklyFeedback[];
+  submitFeedback: (fb: Omit<WeeklyFeedback, 'id' | 'submittedAt' | 'readByTrainer'>) => WeeklyFeedback;
+  markFeedbackRead: (id: string) => void;
+  getAthleteFeeedbacks: (athleteId: string) => WeeklyFeedback[];
+  getTrainerFeedbacks: (trainerId: string) => WeeklyFeedback[];
+
+  // Scheduled nutrition sends
+  scheduledSends: ScheduledNutritionSend[];
+  scheduleNutritionSend: (data: Omit<ScheduledNutritionSend, 'id' | 'createdAt' | 'sent'>) => ScheduledNutritionSend;
+  cancelScheduledSend: (id: string) => void;
+  markScheduledSendSent: (id: string) => void;
+  updateNutritionPlan: (id: string, data: Partial<NutritionPlan>) => void;
 }
 
 // Built-in accounts (not stored in localStorage, not deletable)
@@ -101,6 +130,10 @@ export const useStore = create<AppState>()(
       customExercises: [],
       nutritionProfiles: [],
       nutritionPlans: [],
+      notifications: [],
+      chatMessages: [],
+      feedbacks: [],
+      scheduledSends: [],
 
       login: (email, password) => {
         const storedAccounts = JSON.parse(
@@ -395,6 +428,12 @@ export const useStore = create<AppState>()(
 
       getNutritionPlan: (id) => get().nutritionPlans.find((p) => p.id === id),
 
+      updateNutritionPlan: (id, data) => {
+        set((state) => ({
+          nutritionPlans: state.nutritionPlans.map((p) => p.id === id ? { ...p, ...data } : p),
+        }));
+      },
+
       createPatientInvite: (name, email, phone) => {
         const { currentUser } = get();
         const token = generateId() + generateId();
@@ -421,6 +460,116 @@ export const useStore = create<AppState>()(
       removePendingPatient: (token) => {
         const stored = JSON.parse(localStorage.getItem('apd-pending-patients') || '[]') as PendingPatient[];
         localStorage.setItem('apd-pending-patients', JSON.stringify(stored.filter(p => p.token !== token)));
+      },
+
+      // ── NOTIFICATIONS ──────────────────────────────────────────────────────
+      addNotification: (n) => {
+        const notification: AppNotification = {
+          ...n,
+          id: generateId(),
+          read: false,
+          createdAt: new Date().toISOString(),
+        };
+        set((state) => ({ notifications: [notification, ...state.notifications] }));
+      },
+
+      markNotificationRead: (id) => {
+        set((state) => ({
+          notifications: state.notifications.map((n) => n.id === id ? { ...n, read: true } : n),
+        }));
+      },
+
+      markAllNotificationsRead: (recipientId) => {
+        set((state) => ({
+          notifications: state.notifications.map((n) =>
+            n.recipientId === recipientId ? { ...n, read: true } : n
+          ),
+        }));
+      },
+
+      deleteNotification: (id) => {
+        set((state) => ({ notifications: state.notifications.filter((n) => n.id !== id) }));
+      },
+
+      getUnreadCount: (recipientId) => {
+        return get().notifications.filter((n) => n.recipientId === recipientId && !n.read).length;
+      },
+
+      // ── CHAT ───────────────────────────────────────────────────────────────
+      sendChatMessage: (msg) => {
+        const message: ChatMessage = {
+          ...msg,
+          id: generateId(),
+          read: false,
+          createdAt: new Date().toISOString(),
+        };
+        set((state) => ({ chatMessages: [...state.chatMessages, message] }));
+        return message;
+      },
+
+      markMessagesRead: (conversationId, userId) => {
+        set((state) => ({
+          chatMessages: state.chatMessages.map((m) =>
+            m.conversationId === conversationId && m.recipientId === userId
+              ? { ...m, read: true }
+              : m
+          ),
+        }));
+      },
+
+      getConversationMessages: (userId1, userId2) => {
+        const convId = [userId1, userId2].sort().join('_');
+        return get().chatMessages.filter(
+          (m) => m.conversationId === convId || m.conversationId === `broadcast_${userId1}` || m.conversationId === `broadcast_${userId2}`
+        );
+      },
+
+      getUnreadMessagesCount: (userId) => {
+        return get().chatMessages.filter((m) => m.recipientId === userId && !m.read).length;
+      },
+
+      // ── FEEDBACK ───────────────────────────────────────────────────────────
+      submitFeedback: (fb) => {
+        const feedback: WeeklyFeedback = {
+          ...fb,
+          id: generateId(),
+          submittedAt: new Date().toISOString(),
+          readByTrainer: false,
+        };
+        set((state) => ({ feedbacks: [feedback, ...state.feedbacks] }));
+        return feedback;
+      },
+
+      markFeedbackRead: (id) => {
+        set((state) => ({
+          feedbacks: state.feedbacks.map((f) => f.id === id ? { ...f, readByTrainer: true } : f),
+        }));
+      },
+
+      getAthleteFeeedbacks: (athleteId) => get().feedbacks.filter((f) => f.athleteId === athleteId),
+
+      getTrainerFeedbacks: (trainerId) => get().feedbacks.filter((f) => f.trainerId === trainerId),
+
+      // ── SCHEDULED SENDS ────────────────────────────────────────────────────
+      scheduleNutritionSend: (data) => {
+        const send: ScheduledNutritionSend = {
+          ...data,
+          id: generateId(),
+          sent: false,
+          createdAt: new Date().toISOString(),
+        };
+        set((state) => ({ scheduledSends: [...state.scheduledSends, send] }));
+        return send;
+      },
+
+      cancelScheduledSend: (id) => {
+        set((state) => ({ scheduledSends: state.scheduledSends.filter((s) => s.id !== id) }));
+      },
+
+      markScheduledSendSent: (id) => {
+        set((state) => ({
+          scheduledSends: state.scheduledSends.map((s) => s.id === id ? { ...s, sent: true, sentAt: new Date().toISOString() } : s),
+        }));
       },
 
       registerPatientFromAnamnesis: (token, anamnesis) => {
@@ -479,6 +628,10 @@ export const useStore = create<AppState>()(
         customExercises: state.customExercises,
         nutritionProfiles: state.nutritionProfiles,
         nutritionPlans: state.nutritionPlans,
+        notifications: state.notifications,
+        chatMessages: state.chatMessages,
+        feedbacks: state.feedbacks,
+        scheduledSends: state.scheduledSends,
       }),
     }
   )
