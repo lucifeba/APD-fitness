@@ -1,6 +1,6 @@
 import React from 'react';
-import { Bell } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { NotificationsBell } from '../NotificationsBell';
 
 interface HeaderProps {
   title: string;
@@ -19,9 +19,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, actions }) => {
       </div>
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         {actions}
-        <button className="hidden sm:flex p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
-          <Bell className="w-5 h-5" />
-        </button>
+        <NotificationsBell />
         <div className="flex items-center gap-2 sm:pl-3 sm:border-l sm:border-slate-200">
           <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
             {currentUser?.name?.charAt(0).toUpperCase() || 'A'}

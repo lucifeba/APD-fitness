@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Search, Dumbbell, Plus } from 'lucide-react';
+import { Search, Dumbbell, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { ExerciseSchematic } from '../components/ExerciseSchematic';
 import { Layout } from '../components/layout/Layout';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
@@ -232,6 +233,16 @@ export const Exercises: React.FC = () => {
       {selectedExercise && (
         <Modal isOpen={!!selectedExercise} onClose={() => setSelectedExercise(null)} title={selectedExercise.name} size="sm">
           <div className="space-y-4">
+            {/* Visual schematic / GIF */}
+            <div className="bg-slate-50 rounded-xl border border-slate-100 overflow-hidden">
+              <ExerciseSchematic
+                muscleGroup={selectedExercise.muscleGroup}
+                exerciseName={selectedExercise.name}
+                gifUrl={selectedExercise.gifUrl}
+                imageUrl={selectedExercise.imageUrl}
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="p-3 bg-slate-50 rounded-xl">
                 <p className="text-xs text-slate-400 mb-0.5">Grupo Muscular</p>
@@ -251,6 +262,29 @@ export const Exercises: React.FC = () => {
                 <p className="text-xs font-semibold text-slate-400 uppercase mb-1">Descripción</p>
                 <p className="text-sm text-slate-600">{selectedExercise.description}</p>
               </div>
+            )}
+            {selectedExercise.instructions && selectedExercise.instructions.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Instrucciones</p>
+                <ol className="space-y-1.5">
+                  {selectedExercise.instructions.map((inst, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-slate-600">
+                      <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                      <span>{inst}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {selectedExercise.videoUrl && (
+              <a
+                href={selectedExercise.videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 underline"
+              >
+                Ver vídeo demostrativo
+              </a>
             )}
           </div>
         </Modal>

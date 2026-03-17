@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Apple,
   Wand2,
+  MessageSquare,
+  ClipboardCheck,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
@@ -27,6 +29,8 @@ const trainerNavItems = [
   { to: '/exercises', icon: Dumbbell, label: 'Biblioteca de Ejercicios' },
   { to: '/assignments', icon: BookOpen, label: 'Asignaciones' },
   { to: '/nutrition', icon: Apple, label: 'Nutrición' },
+  { to: '/chat', icon: MessageSquare, label: 'Chat' },
+  { to: '/feedback', icon: ClipboardCheck, label: 'Feedback Semanal' },
   { to: '/settings', icon: Settings, label: 'Configuración' },
 ];
 
@@ -38,6 +42,8 @@ const adminNavItems = [
   { to: '/plans/auto', icon: Wand2, label: 'Plan Automático' },
   { to: '/exercises', icon: Dumbbell, label: 'Ejercicios' },
   { to: '/nutrition', icon: Apple, label: 'Nutrición' },
+  { to: '/chat', icon: MessageSquare, label: 'Chat' },
+  { to: '/feedback', icon: ClipboardCheck, label: 'Feedback' },
   { to: '/settings', icon: Settings, label: 'Configuración' },
 ];
 
