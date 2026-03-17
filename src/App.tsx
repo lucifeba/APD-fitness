@@ -19,11 +19,17 @@ import { AdminPanel } from './pages/admin/AdminPanel';
 import { PatientRegister } from './pages/PatientRegister';
 import { Chat } from './pages/Chat';
 import { Feedback } from './pages/Feedback';
+import { AthleteDashboard } from './pages/athlete/AthleteDashboard';
+import { AthleteMyPlans } from './pages/athlete/AthleteMyPlans';
+import { AthleteMyNutrition } from './pages/athlete/AthleteMyNutrition';
+import { AthleteChat } from './pages/athlete/AthleteChat';
 import { useStore } from './store/useStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useStore();
+  const { isAuthenticated, currentUser } = useStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  // Athletes have their own module
+  if (currentUser?.role === 'athlete') return <Navigate to="/athlete/dashboard" replace />;
   return <>{children}</>;
 };
 
@@ -31,6 +37,13 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, currentUser } = useStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (currentUser?.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+};
+
+const AthleteRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, currentUser } = useStore();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (currentUser?.role !== 'athlete') return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
 
@@ -58,6 +71,13 @@ const App: React.FC = () => {
         <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         <Route path="/feedback" element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
         <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
+        {/* ── ATHLETE ROUTES ───────────────────────────────────────────── */}
+        <Route path="/athlete/dashboard" element={<AthleteRoute><AthleteDashboard /></AthleteRoute>} />
+        <Route path="/athlete/plans" element={<AthleteRoute><AthleteMyPlans /></AthleteRoute>} />
+        <Route path="/athlete/nutrition" element={<AthleteRoute><AthleteMyNutrition /></AthleteRoute>} />
+        <Route path="/athlete/chat" element={<AthleteRoute><AthleteChat /></AthleteRoute>} />
+        <Route path="/athlete/feedback" element={<AthleteRoute><Feedback /></AthleteRoute>} />
+        <Route path="/athlete/profile" element={<AthleteRoute><AthleteDashboard /></AthleteRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

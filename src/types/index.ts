@@ -2,11 +2,12 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'trainer' | 'admin';
+  role: 'trainer' | 'admin' | 'athlete';
   status?: 'pending' | 'active' | 'suspended';
   avatar?: string;
   phone?: string;
   bio?: string;
+  trainerId?: string; // for athletes: their trainer's id
   createdAt: string;
 }
 

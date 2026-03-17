@@ -17,12 +17,12 @@ import type { StoredAccount } from '../../store/useStore';
 
 const BUILTIN_IDS = ['admin-001'];
 
-type Tab = 'pending' | 'trainers';
+type Tab = 'pending' | 'trainers' | 'athletes';
 
 export const AdminPanel: React.FC = () => {
   const {
     getAllAccounts, createTrainerAccount, deleteAccount,
-    approveUser, suspendUser,
+    approveUser, suspendUser, approveAthlete,
     athletes, plans, assignments,
   } = useStore();
 
@@ -48,6 +48,8 @@ export const AdminPanel: React.FC = () => {
     (a) => a.user.role === 'trainer' && (!a.user.status || a.user.status === 'active')
   );
   const allTrainers = accounts.filter((a) => a.user.role === 'trainer');
+  const allAthleteAccounts = accounts.filter((a) => a.user.role === 'athlete');
+  const pendingAthletes = allAthleteAccounts.filter((a) => a.user.status === 'pending');
 
   const getTrainerStats = (trainerId: string) => ({
     athletes: athletes.filter((a) => a.trainerId === trainerId).length,
@@ -299,6 +301,22 @@ export const AdminPanel: React.FC = () => {
             <Shield className="w-4 h-4" />
             Entrenadores Activos
           </button>
+          <button
+            onClick={() => setTab('athletes')}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+              tab === 'athletes'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Deportistas
+            {pendingAthletes.length > 0 && (
+              <span className="bg-amber-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                {pendingAthletes.length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Create trainer form */}
@@ -390,6 +408,72 @@ export const AdminPanel: React.FC = () => {
                 {activeTrainers.map((account) => (
                   <TrainerRow key={account.user.id} account={account} showActions />
                 ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* ATHLETES TAB */}
+        {tab === 'athletes' && (
+          <Card padding="none">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-2">
+              <Users className="w-4 h-4 text-green-600" />
+              <h3 className="font-semibold text-slate-800">Deportistas Registrados</h3>
+              {pendingAthletes.length > 0 && (
+                <span className="ml-auto text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  {pendingAthletes.length} pendientes de aprobación
+                </span>
+              )}
+            </div>
+
+            {allAthleteAccounts.length === 0 ? (
+              <div className="text-center py-14 text-slate-400">
+                <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">No hay deportistas registrados aún</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {allAthleteAccounts.map((account) => {
+                  const athleteRecord = athletes.find((a) => a.email === account.user.email);
+                  const trainerAccount = accounts.find((a) => a.user.id === account.user.trainerId);
+                  return (
+                    <div key={account.user.id} className="p-4 flex items-center gap-3">
+                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-green-700 font-bold text-sm">{account.user.name.charAt(0).toUpperCase()}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-slate-800 text-sm">{account.user.name}</p>
+                        <p className="text-xs text-slate-400">{account.user.email}</p>
+                        {trainerAccount && (
+                          <p className="text-xs text-slate-400">Entrenador: {trainerAccount.user.name}</p>
+                        )}
+                        {athleteRecord?.sport && (
+                          <p className="text-xs text-slate-400">Deporte: {athleteRecord.sport}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {statusBadge(account.user.status)}
+                        {account.user.status === 'pending' && (
+                          <button
+                            onClick={() => {
+                              approveAthlete(account.user.id);
+                              toast.success(`✓ ${account.user.name} aprobado — ya puede acceder`);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 flex items-center gap-1"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" /> Aprobar
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { deleteAccount(account.user.id); toast.success('Deportista eliminado'); }}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Card>

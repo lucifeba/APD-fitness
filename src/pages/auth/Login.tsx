@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Award, Lock, Mail } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -9,7 +10,7 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useStore();
+  const { login, currentUser } = useStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -23,9 +24,15 @@ export const Login: React.FC = () => {
     setLoading(false);
 
     if (result === 'ok') {
-      navigate('/dashboard');
+      // Redirect athletes to their own module
+      const store = useStore.getState();
+      if (store.currentUser?.role === 'athlete') {
+        navigate('/athlete/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
     } else if (result === 'pending') {
-      setError('Tu cuenta está pendiente de validación. El administrador revisará tu solicitud en breve.');
+      setError('Tu cuenta está pendiente de aprobación. Tu entrenador o administrador debe validarla antes de que puedas acceder.');
     } else if (result === 'suspended') {
       setError('Tu cuenta ha sido suspendida. Contacta con el administrador para más información.');
     } else {
@@ -92,7 +99,7 @@ export const Login: React.FC = () => {
 
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-8">
             <h2 className="text-2xl font-bold text-slate-800 mb-1">Bienvenido</h2>
-            <p className="text-slate-500 mb-8">Inicia sesión en tu cuenta de entrenador</p>
+            <p className="text-slate-500 mb-8">Accede con tu cuenta de entrenador o deportista</p>
 
             {error && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">

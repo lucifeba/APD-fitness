@@ -72,6 +72,10 @@ interface AppState {
   removePendingPatient: (token: string) => void;
   registerPatientFromAnamnesis: (token: string, anamnesis: PatientAnamnesis) => boolean;
 
+  // Athlete user actions
+  approveAthlete: (userId: string) => void;
+  getAthleteUser: (userId: string) => { email: string; user: User } | undefined;
+
   // Notification actions
   notifications: AppNotification[];
   addNotification: (n: Omit<AppNotification, 'id' | 'createdAt' | 'read'>) => void;
@@ -462,6 +466,22 @@ export const useStore = create<AppState>()(
         localStorage.setItem('apd-pending-patients', JSON.stringify(stored.filter(p => p.token !== token)));
       },
 
+      // ── ATHLETE USER ACTIONS ────────────────────────────────────────────────
+      approveAthlete: (userId) => {
+        const storedAccounts = JSON.parse(localStorage.getItem('apd-accounts') || '[]') as { email: string; password: string; user: User }[];
+        const idx = storedAccounts.findIndex((a) => a.user.id === userId);
+        if (idx >= 0) {
+          storedAccounts[idx].user = { ...storedAccounts[idx].user, status: 'active' };
+          localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+        }
+      },
+
+      getAthleteUser: (userId) => {
+        const storedAccounts = JSON.parse(localStorage.getItem('apd-accounts') || '[]') as { email: string; password: string; user: User }[];
+        const found = storedAccounts.find((a) => a.user.id === userId);
+        return found ? { email: found.email, user: found.user } : undefined;
+      },
+
       // ── NOTIFICATIONS ──────────────────────────────────────────────────────
       addNotification: (n) => {
         const notification: AppNotification = {
@@ -583,9 +603,10 @@ export const useStore = create<AppState>()(
           id: generateId(),
           email: anamnesis.email,
           name: anamnesis.name,
-          role: 'trainer',
-          status: 'active',
+          role: 'athlete',
+          status: 'pending', // requires trainer/admin approval before access
           phone: anamnesis.phone,
+          trainerId: pending.trainerId,
           createdAt: new Date().toISOString(),
         };
         storedAccounts.push({ email: anamnesis.email, password: anamnesis.password, user: newUser });

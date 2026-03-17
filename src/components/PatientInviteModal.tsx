@@ -111,8 +111,24 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
                 Enviar por WhatsApp{name ? ` a ${name}` : ''}
               </button>
 
+              {email && (
+                <button
+                  onClick={() => {
+                    const subject = encodeURIComponent('Completa tu ficha de salud — APD SPORT');
+                    const body = encodeURIComponent(
+                      `Hola${name ? ` ${name}` : ''},\n\nTe envío este enlace para completar tu ficha de salud y nutrición. Solo te llevará unos minutos y me permitirá preparar tu plan personalizado.\n\n${link}\n\nEl enlace es válido durante 7 días.\n\n¡Cualquier duda, escríbeme!`
+                    );
+                    window.open(`mailto:${email}?subject=${subject}&body=${body}`);
+                  }}
+                  className="w-full flex items-center justify-center gap-2.5 py-3.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 transition shadow-md"
+                >
+                  <Mail className="w-5 h-5" />
+                  Enviar por Email a {email}
+                </button>
+              )}
+
               <p className="text-xs text-center text-slate-400">
-                Al hacer clic, se abrirá WhatsApp Web con el mensaje preescrito listo para enviar.
+                Al hacer clic, se abrirá WhatsApp/Email con el mensaje preescrito listo para enviar.
               </p>
 
               <button onClick={() => { setStep('form'); setName(''); setEmail(''); setPhone(''); setLink(''); }} className="w-full py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition">
