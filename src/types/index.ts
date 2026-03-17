@@ -28,6 +28,9 @@ export interface Athlete {
   medicalNotes?: string;
   status: 'active' | 'inactive';
   createdAt: string;
+  anamnesisCompleted?: boolean;
+  contractAccepted?: boolean;
+  contractAcceptedAt?: string;
 }
 
 export interface Exercise {
@@ -103,6 +106,8 @@ export interface PatientAnamnesis {
   caffeineIntake: 'none' | 'low' | 'moderate' | 'high';
   // Additional notes
   notes: string;
+  // Contract
+  contractAccepted?: boolean;
 }
 
 export interface WorkoutSet {

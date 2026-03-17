@@ -23,6 +23,7 @@ import { AthleteDashboard } from './pages/athlete/AthleteDashboard';
 import { AthleteMyPlans } from './pages/athlete/AthleteMyPlans';
 import { AthleteMyNutrition } from './pages/athlete/AthleteMyNutrition';
 import { AthleteChat } from './pages/athlete/AthleteChat';
+import { AthleteCompleteSurvey } from './pages/athlete/AthleteCompleteSurvey';
 import { useStore } from './store/useStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -72,6 +73,7 @@ const App: React.FC = () => {
         <Route path="/feedback" element={<ProtectedRoute><Feedback /></ProtectedRoute>} />
         <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
         {/* ── ATHLETE ROUTES ───────────────────────────────────────────── */}
+        <Route path="/athlete/complete-survey" element={<AthleteRoute><AthleteCompleteSurvey /></AthleteRoute>} />
         <Route path="/athlete/dashboard" element={<AthleteRoute><AthleteDashboard /></AthleteRoute>} />
         <Route path="/athlete/plans" element={<AthleteRoute><AthleteMyPlans /></AthleteRoute>} />
         <Route path="/athlete/nutrition" element={<AthleteRoute><AthleteMyNutrition /></AthleteRoute>} />

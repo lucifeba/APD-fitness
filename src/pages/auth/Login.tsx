@@ -24,10 +24,17 @@ export const Login: React.FC = () => {
     setLoading(false);
 
     if (result === 'ok') {
-      // Redirect athletes to their own module
       const store = useStore.getState();
       if (store.currentUser?.role === 'athlete') {
-        navigate('/athlete/dashboard');
+        // Check if athlete has completed anamnesis
+        const user = store.currentUser;
+        const athlete = store.athletes.find(a => a.email.toLowerCase() === user!.email.toLowerCase());
+        if (athlete && !athlete.anamnesisCompleted) {
+          // Athlete created manually - must fill survey first
+          navigate('/athlete/complete-survey');
+        } else {
+          navigate('/athlete/dashboard');
+        }
       } else {
         navigate('/dashboard');
       }

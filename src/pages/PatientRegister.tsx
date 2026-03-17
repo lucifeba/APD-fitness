@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import type { PatientAnamnesis } from '../types';
+import { sendContractEmail, generateContractText } from '../lib/email';
 import {
   User, Mail, Lock, Phone, Scale, Ruler, ChevronRight, ChevronLeft,
   CheckCircle2, Heart, Apple, Activity, Utensils, AlertTriangle, ClipboardList,
+  FileText, Loader2,
 } from 'lucide-react';
 
 const EMPTY: PatientAnamnesis = {
@@ -44,6 +46,7 @@ const steps = [
   { label: 'Restricciones', icon: AlertTriangle },
   { label: 'Gustos', icon: Apple },
   { label: 'Objetivos', icon: ClipboardList },
+  { label: 'Contrato', icon: FileText },
   { label: 'Confirmación', icon: CheckCircle2 },
 ];
 
@@ -58,6 +61,8 @@ export const PatientRegister: React.FC = () => {
   const [done, setDone] = useState(false);
   const [dislikedInput, setDislikedInput] = useState('');
   const [pending, setPending] = useState<ReturnType<typeof getPendingPatient>>(undefined);
+  const [contractAccepted, setContractAccepted] = useState(false);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -75,13 +80,31 @@ export const PatientRegister: React.FC = () => {
   const toggleArr = (key: 'chronicDiseases' | 'allergies' | 'intolerances' | 'previousDiets' | 'supplementsUsed' | 'dislikedFoods' | 'giIssues', val: string) =>
     setForm(f => ({ ...f, [key]: f[key].includes(val) ? (f[key] as string[]).filter(v => v !== val) : [...(f[key] as string[]), val] }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!token) return;
     if (form.password !== confirmPassword) { setError('Las contraseñas no coinciden'); return; }
     if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
-    const ok = registerPatientFromAnamnesis(token, form);
-    if (ok) setDone(true);
-    else setError('Ya existe una cuenta con ese email. Contacta con tu entrenador.');
+    if (!contractAccepted) { setError('Debes aceptar el contrato de prestación de servicios.'); return; }
+    setSending(true);
+    const ok = registerPatientFromAnamnesis(token, { ...form, contractAccepted: true });
+    if (ok) {
+      // Send contract email
+      const acceptedAt = new Date().toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' });
+      const trainerName = pending?.trainerId ? 'APD SPORT' : 'APD SPORT';
+      const contractText = generateContractText(form.name, trainerName, acceptedAt);
+      await sendContractEmail({
+        to_email: form.email,
+        to_name: form.name,
+        trainer_name: trainerName,
+        accepted_at: acceptedAt,
+        contract_html: contractText,
+      });
+      setSending(false);
+      setDone(true);
+    } else {
+      setSending(false);
+      setError('Ya existe una cuenta con ese email. Contacta con tu entrenador.');
+    }
   };
 
   if (!pending && token) {
@@ -467,8 +490,49 @@ export const PatientRegister: React.FC = () => {
             </div>
           )}
 
-          {/* STEP 7: Confirmación */}
+          {/* STEP 7: Contrato de Prestación de Servicios */}
           {step === 7 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><FileText className="w-5 h-5 text-green-500" />Contrato de Prestación de Servicios</h2>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 h-72 overflow-y-auto text-xs text-slate-600 leading-relaxed space-y-3">
+                <p className="font-bold text-sm text-slate-800 text-center">CONTRATO DE PRESTACIÓN DE SERVICIOS NUTRICIONALES Y DEPORTIVOS</p>
+                <p className="text-center text-slate-500">APD SPORT · info@apdsport.com</p>
+                <p><strong>PARTES:</strong></p>
+                <p>• <strong>PRESTADOR:</strong> APD SPORT (info@apdsport.com)</p>
+                <p>• <strong>CLIENTE:</strong> {form.name || '[Tu nombre]'}</p>
+                <p><strong>1. OBJETO DEL CONTRATO</strong></p>
+                <p>APD SPORT se compromete a prestar servicios de nutrición deportiva y planificación de entrenamiento personalizado al cliente, en base a los datos aportados en la ficha de anamnesis inicial.</p>
+                <p><strong>2. SERVICIOS INCLUIDOS</strong></p>
+                <p>• Elaboración de plan nutricional personalizado adaptado a los objetivos del deportista.<br/>• Elaboración y seguimiento de planes de entrenamiento.<br/>• Acceso a la plataforma digital APD SPORT para consulta de planes y comunicación con el profesional.<br/>• Revisiones periódicas y ajustes del plan según evolución.<br/>• Chat directo con el/la nutricionista/entrenador/a asignado/a.</p>
+                <p><strong>3. OBLIGACIONES DEL CLIENTE</strong></p>
+                <p>• Proporcionar datos verídicos en la ficha de salud y nutrición.<br/>• Consultar con su médico antes de iniciar cualquier programa si padece condiciones de salud.<br/>• Informar al profesional de cualquier cambio relevante en su estado de salud.</p>
+                <p><strong>4. PROTECCIÓN DE DATOS (RGPD)</strong></p>
+                <p>De conformidad con el Reglamento General de Protección de Datos (UE) 2016/679, APD SPORT informa que los datos personales facilitados serán tratados con la finalidad de prestar los servicios contratados. Los datos no serán cedidos a terceros salvo obligación legal. El cliente puede ejercer sus derechos de acceso, rectificación, supresión y portabilidad contactando en info@apdsport.com.</p>
+                <p><strong>5. CONFIDENCIALIDAD</strong></p>
+                <p>APD SPORT se compromete a mantener la confidencialidad de toda la información médica y personal del cliente, no divulgándola sin su consentimiento expreso.</p>
+                <p><strong>6. VIGENCIA</strong></p>
+                <p>El contrato estará vigente desde la fecha de aceptación hasta que cualquiera de las partes lo rescinda con un preaviso de 7 días.</p>
+              </div>
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={contractAccepted}
+                  onChange={e => { setContractAccepted(e.target.checked); setError(''); }}
+                  className="mt-0.5 w-4 h-4 accent-green-600 flex-shrink-0"
+                />
+                <span className="text-sm text-slate-700">
+                  He leído, comprendido y acepto íntegramente las condiciones del <strong>Contrato de Prestación de Servicios</strong> de APD SPORT. Autorizo el tratamiento de mis datos personales conforme al RGPD.
+                </span>
+              </label>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+                Una copia del contrato aceptado se enviará automáticamente a tu correo <strong>{form.email || 'indicado'}</strong> desde info@apdsport.com.
+              </div>
+              {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+            </div>
+          )}
+
+          {/* STEP 8: Confirmación */}
+          {step === 8 && (
             <div className="space-y-4">
               <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-green-500" />Resumen y Confirmación</h2>
               <div className="space-y-3 text-sm">
@@ -499,14 +563,19 @@ export const PatientRegister: React.FC = () => {
             <ChevronLeft className="w-4 h-4" /> Anterior
           </button>
           {step < totalSteps - 1 ? (
-            <button type="button" onClick={() => setStep(s => s + 1)}
+            <button type="button"
+              onClick={() => {
+                if (step === 7 && !contractAccepted) { setError('Debes aceptar el contrato para continuar.'); return; }
+                setError('');
+                setStep(s => s + 1);
+              }}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition">
               Siguiente <ChevronRight className="w-4 h-4" />
             </button>
           ) : (
-            <button type="button" onClick={handleSubmit}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 hover:opacity-95 shadow transition">
-              <CheckCircle2 className="w-4 h-4" /> Enviar Ficha
+            <button type="button" onClick={handleSubmit} disabled={sending}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 hover:opacity-95 shadow transition disabled:opacity-60">
+              {sending ? <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</> : <><CheckCircle2 className="w-4 h-4" /> Enviar Ficha</>}
             </button>
           )}
         </div>

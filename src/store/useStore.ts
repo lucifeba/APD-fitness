@@ -104,6 +104,8 @@ interface AppState {
   cancelScheduledSend: (id: string) => void;
   markScheduledSendSent: (id: string) => void;
   updateNutritionPlan: (id: string, data: Partial<NutritionPlan>) => void;
+  assignNutritionToAthlete: (planId: string, athleteId: string, adjustedCalories?: number, adjustedProtein?: number, adjustedCarbs?: number, adjustedFat?: number) => void;
+  completeAthleteAnamnesis: (athleteId: string) => void;
 }
 
 // Built-in accounts (not stored in localStorage, not deletable)
@@ -592,6 +594,31 @@ export const useStore = create<AppState>()(
         }));
       },
 
+      assignNutritionToAthlete: (planId, athleteId, adjustedCalories, adjustedProtein, adjustedCarbs, adjustedFat) => {
+        set((state) => ({
+          nutritionPlans: state.nutritionPlans.map((p) =>
+            p.id === planId
+              ? {
+                  ...p,
+                  athleteId,
+                  ...(adjustedCalories !== undefined && { targetCalories: adjustedCalories }),
+                  ...(adjustedProtein !== undefined && { targetProtein: adjustedProtein }),
+                  ...(adjustedCarbs !== undefined && { targetCarbs: adjustedCarbs }),
+                  ...(adjustedFat !== undefined && { targetFat: adjustedFat }),
+                }
+              : p
+          ),
+        }));
+      },
+
+      completeAthleteAnamnesis: (athleteId) => {
+        set((state) => ({
+          athletes: state.athletes.map((a) =>
+            a.id === athleteId ? { ...a, anamnesisCompleted: true } : a
+          ),
+        }));
+      },
+
       registerPatientFromAnamnesis: (token, anamnesis) => {
         const pending = get().getPendingPatient(token);
         if (!pending) return false;
@@ -632,6 +659,9 @@ export const useStore = create<AppState>()(
           ].filter(Boolean).join(' | '),
           status: 'active',
           createdAt: new Date().toISOString(),
+          anamnesisCompleted: true,
+          contractAccepted: anamnesis.contractAccepted ?? false,
+          contractAcceptedAt: anamnesis.contractAccepted ? new Date().toISOString() : undefined,
         };
         set(state => ({ athletes: [...state.athletes, athlete] }));
         get().removePendingPatient(token);

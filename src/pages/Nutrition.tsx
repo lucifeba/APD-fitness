@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { useStore } from '../store/useStore';
+import { AssignNutritionModal } from '../components/AssignNutritionModal';
+import type { NutritionPlan } from '../types';
 import {
   Apple, Plus, ChefHat, Target, TrendingDown, TrendingUp,
-  Activity, Trash2, Calendar, BarChart3, Zap,
+  Activity, Trash2, Calendar, BarChart3, Zap, UserCheck, Users,
 } from 'lucide-react';
 
 export const Nutrition: React.FC = () => {
   const navigate = useNavigate();
-  const { nutritionProfiles, nutritionPlans, deleteNutritionProfile, deleteNutritionPlan } = useStore();
+  const { nutritionProfiles, nutritionPlans, athletes, deleteNutritionProfile, deleteNutritionPlan } = useStore();
   const [activeTab, setActiveTab] = useState<'overview' | 'profiles' | 'plans'>('overview');
+  const [assigningPlan, setAssigningPlan] = useState<NutritionPlan | null>(null);
 
   const goalLabel: Record<string, string> = {
     lose_weight: 'Pérdida de Peso',
@@ -28,6 +31,7 @@ export const Nutrition: React.FC = () => {
   };
 
   return (
+    <>
     <Layout>
       <div className="p-4 sm:p-6">
         {/* Header */}
@@ -232,12 +236,31 @@ export const Nutrition: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                    <button
-                      onClick={() => navigate(`/nutrition/plan/${plan.id}`)}
-                      className="mt-4 w-full py-2 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition"
-                    >
-                      Ver Menú Semanal
-                    </button>
+                    {/* Assigned athlete */}
+                    {plan.athleteId && (() => {
+                      const athlete = athletes.find(a => a.id === plan.athleteId);
+                      return athlete ? (
+                        <div className="flex items-center gap-1.5 mt-3 px-2.5 py-1.5 bg-green-50 rounded-lg">
+                          <Users className="w-3.5 h-3.5 text-green-600" />
+                          <span className="text-xs text-green-700 font-medium">{athlete.name}</span>
+                        </div>
+                      ) : null;
+                    })()}
+                    <div className="flex gap-2 mt-4">
+                      <button
+                        onClick={() => navigate(`/nutrition/plan/${plan.id}`)}
+                        className="flex-1 py-2 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition"
+                      >
+                        Ver Menú
+                      </button>
+                      <button
+                        onClick={() => setAssigningPlan(plan)}
+                        className="flex items-center gap-1 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        Asignar
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -246,5 +269,13 @@ export const Nutrition: React.FC = () => {
         )}
       </div>
     </Layout>
+    {assigningPlan && (
+      <AssignNutritionModal
+        plan={assigningPlan}
+        onClose={() => setAssigningPlan(null)}
+        onAssigned={() => setAssigningPlan(null)}
+      />
+    )}
+    </>
   );
 };
