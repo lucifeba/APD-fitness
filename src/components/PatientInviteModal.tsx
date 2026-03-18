@@ -44,13 +44,34 @@ ${ONBOARDING_INSTRUCTIONS}
 
 function buildEmailBody(name: string, link: string): string {
   const greeting = name ? ` ${name}` : '';
+  // Keep body short so it fits within mailto: URL limits (~2000 chars)
+  return `Hola${greeting},
+
+Te envío tu enlace personalizado para completar tu ficha de salud en APD SPORT (5-10 min):
+
+${link}
+
+Pasos:
+1. Accede al enlace y rellena tu ficha
+2. Recibirás el contrato por email al finalizar
+3. Tu entrenador/a activará tu cuenta
+4. Recibirás tu plan personalizado
+
+El enlace es valido 7 dias. Si caduca, solicita uno nuevo.
+
+APD SPORT
+${SENDER_EMAIL} | ${SENDER_WHATSAPP}`;
+}
+
+function buildEmailBodyFull(name: string, link: string): string {
+  const greeting = name ? ` ${name}` : '';
   return `Hola${greeting},
 
 Te escribimos desde APD SPORT para darte la bienvenida y enviarte tu enlace personalizado de registro.
 
 Para que podamos preparar tu plan de nutrición y/o entrenamiento personalizado, necesitamos que completes tu ficha de salud. Solo te llevará entre 5 y 10 minutos.
 
-🔗 TU ENLACE DE REGISTRO:
+TU ENLACE DE REGISTRO:
 ${link}
 
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -93,6 +114,7 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
   const [step, setStep] = useState<'form' | 'link'>('form');
   const [link, setLink] = useState('');
   const [copied, setCopied] = useState(false);
+  const [emailMsgCopied, setEmailMsgCopied] = useState(false);
   const [sentMethods, setSentMethods] = useState<Set<string>>(new Set());
 
   const handleCreate = () => {
@@ -130,6 +152,14 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyEmail = async () => {
+    const subject = 'Bienvenido/a a APD SPORT — Tu enlace de registro personalizado';
+    const body = buildEmailBodyFull(name, link);
+    await navigator.clipboard.writeText(`Asunto: ${subject}\n\n${body}`);
+    setEmailMsgCopied(true);
+    setTimeout(() => setEmailMsgCopied(false), 3000);
+  };
+
   const handleReset = () => {
     setStep('form');
     setName('');
@@ -138,6 +168,7 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
     setLink('');
     setSentMethods(new Set());
     setCopied(false);
+    setEmailMsgCopied(false);
   };
 
   const canCreate = phone.trim() || email.trim();
@@ -319,13 +350,18 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
                     className={`w-full flex items-center justify-center gap-2.5 py-3.5 font-semibold text-sm transition ${emailSent ? 'bg-blue-700 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                   >
                     <Mail className="w-5 h-5" />
-                    {emailSent ? '✓ Enviado por Email' : `Enviar por Email${email ? ` a ${email}` : ''}`}
+                    {emailSent ? '✓ Abierto en cliente de correo' : `Abrir email${email ? ` a ${email}` : ''}`}
                   </button>
-                  {!emailSent && (
-                    <p className="text-xs text-center text-slate-400 py-2 px-3">
-                      Asegúrate de enviar desde la cuenta <strong>{SENDER_EMAIL}</strong>
-                    </p>
-                  )}
+                  <button
+                    onClick={handleCopyEmail}
+                    className={`w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition border-t border-slate-100 ${emailMsgCopied ? 'bg-green-50 text-green-700' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {emailMsgCopied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {emailMsgCopied ? '¡Mensaje copiado! Pégalo en tu correo' : 'Copiar mensaje completo'}
+                  </button>
+                  <p className="text-xs text-center text-slate-400 py-2 px-3 bg-slate-50 border-t border-slate-100">
+                    Envía desde <strong>{SENDER_EMAIL}</strong>
+                  </p>
                 </div>
               </div>
 
