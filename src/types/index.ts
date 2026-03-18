@@ -238,7 +238,7 @@ export interface NutritionProfile {
 export interface FoodItem {
   id: string;
   name: string;
-  category: 'protein' | 'carbs' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'legume' | 'nuts' | 'condiment';
+  category: 'protein' | 'carbs' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'legume' | 'nuts' | 'nut_seed' | 'condiment' | 'grain' | 'fish_seafood' | 'beverage' | 'other' | 'snack' | 'breakfast';
   calories: number; // per 100g
   protein: number; // g per 100g
   carbs: number; // g per 100g
@@ -246,7 +246,7 @@ export interface FoodItem {
   fiber?: number; // g per 100g
   isSpanish?: boolean;
   season?: ('spring' | 'summer' | 'autumn' | 'winter' | 'all')[];
-  dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean')[];
+  dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean' | 'keto' | 'paleo' | 'gluten_free' | 'lactose_free')[];
 }
 
 export interface RecipeIngredient {
@@ -271,7 +271,7 @@ export interface Recipe {
   carbs: number;
   fat: number;
   fiber?: number;
-  dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean')[];
+  dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean' | 'keto' | 'paleo' | 'gluten_free' | 'lactose_free')[];
   tags: string[];
   isSpanish?: boolean;
   region?: string; // Spanish region if applicable
@@ -341,7 +341,7 @@ export interface ChatMessage {
   conversationId: string;
   senderId: string;
   senderName: string;
-  senderRole: 'trainer' | 'admin';
+  senderRole: 'trainer' | 'admin' | 'athlete';
   recipientId: string; // 'ALL' for broadcast
   recipientName: string;
   text: string;

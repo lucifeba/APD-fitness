@@ -10,7 +10,7 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, currentUser } = useStore();
+  const { login } = useStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
