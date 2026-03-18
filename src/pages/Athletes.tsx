@@ -328,6 +328,10 @@ export const Athletes: React.FC = () => {
       />
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+      {showInviteModal && (
+        <PatientInviteModal onClose={() => setShowInviteModal(false)} />
+      )}
     </Layout>
   );
 };
