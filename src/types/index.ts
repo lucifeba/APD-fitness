@@ -26,7 +26,7 @@ export interface Athlete {
   height?: number;
   goals?: string;
   medicalNotes?: string;
-  status: 'active' | 'inactive';
+  status: 'active' | 'inactive' | 'pending';
   createdAt: string;
   anamnesisCompleted?: boolean;
   contractAccepted?: boolean;

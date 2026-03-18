@@ -261,7 +261,7 @@ export const AdminPanel: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Entrenadores', value: activeTrainers.length, icon: Users, color: 'blue' },
-            { label: 'Pendientes', value: pendingAccounts.filter(a => a.user.status === 'pending').length, icon: Clock, color: 'amber' },
+            { label: 'Pendientes', value: pendingAccounts.filter(a => a.user.status === 'pending').length + pendingAthletes.length, icon: Clock, color: 'amber' },
             { label: 'Deportistas', value: athletes.length, icon: Users, color: 'green' },
             { label: 'Planes', value: plans.length, icon: ClipboardList, color: 'indigo' },
           ].map((stat) => (
@@ -284,9 +284,9 @@ export const AdminPanel: React.FC = () => {
           >
             <Clock className="w-4 h-4" />
             Solicitudes Pendientes
-            {pendingAccounts.filter(a => a.user.status === 'pending').length > 0 && (
+            {(pendingAccounts.filter(a => a.user.status === 'pending').length + pendingAthletes.length) > 0 && (
               <span className="bg-amber-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                {pendingAccounts.filter(a => a.user.status === 'pending').length}
+                {pendingAccounts.filter(a => a.user.status === 'pending').length + pendingAthletes.length}
               </span>
             )}
           </button>
@@ -364,27 +364,90 @@ export const AdminPanel: React.FC = () => {
 
         {/* PENDING TAB */}
         {tab === 'pending' && (
-          <Card padding="none">
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-500" />
-              <h3 className="font-semibold text-slate-800">Solicitudes de Acceso</h3>
-              <span className="text-xs text-slate-400 ml-auto">Usuarios que han pedido acceso a la plataforma</span>
-            </div>
+          <div className="space-y-4">
+            {/* Pending trainers */}
+            <Card padding="none">
+              <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-500" />
+                <h3 className="font-semibold text-slate-800">Entrenadores Pendientes</h3>
+                <span className="text-xs text-slate-400 ml-auto">{pendingAccounts.length} solicitudes</span>
+              </div>
+              {pendingAccounts.length === 0 ? (
+                <div className="text-center py-10">
+                  <CheckCircle className="w-10 h-10 text-emerald-200 mx-auto mb-2" />
+                  <p className="text-slate-400 text-sm">Sin entrenadores pendientes</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {pendingAccounts.map((account) => (
+                    <TrainerRow key={account.user.id} account={account} showActions />
+                  ))}
+                </div>
+              )}
+            </Card>
 
-            {pendingAccounts.length === 0 ? (
-              <div className="text-center py-14">
-                <CheckCircle className="w-12 h-12 text-emerald-200 mx-auto mb-3" />
-                <p className="text-slate-500 text-sm font-medium">Sin solicitudes pendientes</p>
-                <p className="text-slate-400 text-xs mt-1">Todos los usuarios están al día</p>
+            {/* Pending athletes */}
+            <Card padding="none">
+              <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-green-600" />
+                <h3 className="font-semibold text-slate-800">Deportistas Pendientes de Validación</h3>
+                <span className="text-xs text-slate-400 ml-auto">{pendingAthletes.length} registros</span>
               </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {pendingAccounts.map((account) => (
-                  <TrainerRow key={account.user.id} account={account} showActions />
-                ))}
-              </div>
-            )}
-          </Card>
+              {pendingAthletes.length === 0 ? (
+                <div className="text-center py-10">
+                  <CheckCircle className="w-10 h-10 text-emerald-200 mx-auto mb-2" />
+                  <p className="text-slate-400 text-sm">Sin deportistas pendientes</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {pendingAthletes.map((account) => {
+                    const athleteRecord = athletes.find((a) => a.email === account.user.email);
+                    const trainerAccount = accounts.find((a) => a.user.id === account.user.trainerId);
+                    return (
+                      <div key={account.user.id} className="p-4 flex items-center gap-3">
+                        <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="text-amber-700 font-bold text-sm">{account.user.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-800 text-sm">{account.user.name}</p>
+                          <p className="text-xs text-slate-400">{account.user.email}</p>
+                          {trainerAccount && (
+                            <p className="text-xs text-slate-500">Entrenador: <strong>{trainerAccount.user.name}</strong></p>
+                          )}
+                          {athleteRecord?.goals && (
+                            <p className="text-xs text-slate-400 truncate">Objetivo: {athleteRecord.goals}</p>
+                          )}
+                          {account.user.createdAt && (
+                            <p className="text-xs text-slate-400">
+                              Registrado: {format(new Date(account.user.createdAt), "d MMM yyyy, HH:mm", { locale: es })}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {statusBadge(account.user.status)}
+                          <button
+                            onClick={() => {
+                              approveAthlete(account.user.id);
+                              toast.success(`✓ ${account.user.name} aprobado — ya puede acceder`);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 flex items-center gap-1 font-medium"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" /> Validar
+                          </button>
+                          <button
+                            onClick={() => { deleteAccount(account.user.id); toast.success('Deportista eliminado'); }}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
         )}
 
         {/* TRAINERS TAB */}

@@ -473,8 +473,15 @@ export const useStore = create<AppState>()(
         const storedAccounts = JSON.parse(localStorage.getItem('apd-accounts') || '[]') as { email: string; password: string; user: User }[];
         const idx = storedAccounts.findIndex((a) => a.user.id === userId);
         if (idx >= 0) {
+          const email = storedAccounts[idx].user.email;
           storedAccounts[idx].user = { ...storedAccounts[idx].user, status: 'active' };
           localStorage.setItem('apd-accounts', JSON.stringify(storedAccounts));
+          // Also update the athlete record in the Zustand store
+          set((state) => ({
+            athletes: state.athletes.map((a) =>
+              a.email === email ? { ...a, status: 'active' } : a
+            ),
+          }));
         }
       },
 
@@ -659,7 +666,7 @@ export const useStore = create<AppState>()(
             anamnesis.intolerances.length ? `Intolerancias: ${anamnesis.intolerances.join(', ')}` : '',
             anamnesis.notes ? `Notas: ${anamnesis.notes}` : '',
           ].filter(Boolean).join(' | '),
-          status: 'active',
+          status: 'pending',
           createdAt: new Date().toISOString(),
           anamnesisCompleted: true,
           contractAccepted: anamnesis.contractAccepted ?? false,
