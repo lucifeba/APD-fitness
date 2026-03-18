@@ -1,7 +1,6 @@
 import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/auth/Login';
-import { Register } from './pages/auth/Register';
 import { Dashboard } from './pages/Dashboard';
 import { Athletes } from './pages/Athletes';
 import { AthleteDetail } from './pages/AthleteDetail';
@@ -53,7 +52,7 @@ const App: React.FC = () => {
     <HashRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route path="/register" element={<Navigate to="/login" replace />} />
         <Route path="/registro-paciente/:token" element={<PatientRegister />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/athletes" element={<ProtectedRoute><Athletes /></ProtectedRoute>} />

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Award, Lock, Mail } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -173,11 +173,8 @@ export const Login: React.FC = () => {
               </button>
             </form>
 
-            <p className="text-center text-sm text-slate-500 mt-6">
-              ¿No tienes cuenta?{' '}
-              <Link to="/register" className="text-blue-600 font-medium hover:text-blue-700 hover:underline">
-                Regístrate gratis
-              </Link>
+            <p className="text-center text-xs text-slate-400 mt-6">
+              El acceso es solo por invitación. Contacta con tu entrenador/a.
             </p>
 
           </div>
