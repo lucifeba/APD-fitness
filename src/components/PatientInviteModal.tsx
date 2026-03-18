@@ -99,7 +99,9 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
     if (!phone.trim() && !email.trim()) return;
     const pending = createPatientInvite(name.trim(), email.trim(), phone.trim());
     const baseUrl = window.location.href.split('#')[0];
-    const registrationLink = `${baseUrl}#/registro-paciente/${pending.token}`;
+    // Encode full pending data into the URL so the link works on any device
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(pending))));
+    const registrationLink = `${baseUrl}#/registro-paciente/${encoded}`;
     setLink(registrationLink);
     setStep('link');
   };

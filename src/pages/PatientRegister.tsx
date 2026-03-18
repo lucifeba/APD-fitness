@@ -65,12 +65,27 @@ export const PatientRegister: React.FC = () => {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    if (token) {
-      const p = getPendingPatient(token);
-      setPending(p);
-      if (p) {
-        setForm(f => ({ ...f, name: p.prefilledName || '', email: p.prefilledEmail || '', phone: p.phone || '' }));
+    if (!token) return;
+    // 1. Try to decode invite data embedded in URL (works cross-device)
+    try {
+      const decoded = JSON.parse(decodeURIComponent(escape(atob(token))));
+      if (decoded && decoded.trainerId) {
+        // Check expiry
+        if (decoded.expiresAt && new Date(decoded.expiresAt) < new Date()) {
+          return; // expired — pending stays undefined → shows invalid screen
+        }
+        setPending(decoded);
+        setForm(f => ({ ...f, name: decoded.prefilledName || '', email: decoded.prefilledEmail || '', phone: decoded.phone || '' }));
+        return;
       }
+    } catch {
+      // Not base64 — fall through to localStorage lookup
+    }
+    // 2. Fallback: lookup by token in localStorage (same-browser invites)
+    const p = getPendingPatient(token);
+    setPending(p);
+    if (p) {
+      setForm(f => ({ ...f, name: p.prefilledName || '', email: p.prefilledEmail || '', phone: p.phone || '' }));
     }
   }, [token]);
 
@@ -86,7 +101,7 @@ export const PatientRegister: React.FC = () => {
     if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
     if (!contractAccepted) { setError('Debes aceptar el contrato de prestación de servicios.'); return; }
     setSending(true);
-    const ok = registerPatientFromAnamnesis(token, { ...form, contractAccepted: true });
+    const ok = registerPatientFromAnamnesis(pending ?? token ?? '', { ...form, contractAccepted: true });
     if (ok) {
       // Send contract email
       const acceptedAt = new Date().toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' });

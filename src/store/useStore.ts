@@ -70,7 +70,7 @@ interface AppState {
   createPatientInvite: (name: string, email: string, phone: string) => PendingPatient;
   getPendingPatient: (token: string) => PendingPatient | undefined;
   removePendingPatient: (token: string) => void;
-  registerPatientFromAnamnesis: (token: string, anamnesis: PatientAnamnesis) => boolean;
+  registerPatientFromAnamnesis: (tokenOrPending: string | PendingPatient, anamnesis: PatientAnamnesis) => boolean;
 
   // Athlete user actions
   approveAthlete: (userId: string) => void;
@@ -619,8 +619,10 @@ export const useStore = create<AppState>()(
         }));
       },
 
-      registerPatientFromAnamnesis: (token, anamnesis) => {
-        const pending = get().getPendingPatient(token);
+      registerPatientFromAnamnesis: (tokenOrPending, anamnesis) => {
+        const pending = typeof tokenOrPending === 'string'
+          ? get().getPendingPatient(tokenOrPending)
+          : tokenOrPending;
         if (!pending) return false;
         // Create account in apd-accounts
         const storedAccounts = JSON.parse(localStorage.getItem('apd-accounts') || '[]') as { email: string; password: string; user: User }[];
@@ -664,7 +666,8 @@ export const useStore = create<AppState>()(
           contractAcceptedAt: anamnesis.contractAccepted ? new Date().toISOString() : undefined,
         };
         set(state => ({ athletes: [...state.athletes, athlete] }));
-        get().removePendingPatient(token);
+        if (typeof tokenOrPending === 'string') get().removePendingPatient(tokenOrPending);
+        else get().removePendingPatient(tokenOrPending.token);
         return true;
       },
     } as AppState),
