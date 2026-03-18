@@ -9,101 +9,125 @@ interface Props {
 const SENDER_WHATSAPP = '+34676002647';
 const SENDER_EMAIL = 'info@apdsport.com';
 
-const ONBOARDING_INSTRUCTIONS = `📋 INSTRUCCIONES PARA EMPEZAR EN LA PLATAFORMA
-
-Una vez que hayas completado tu ficha, esto es lo que puedes esperar:
-
-1️⃣ REGISTRO: Rellena el formulario con tus datos de salud y objetivos (tarda unos 5-10 minutos).
-
-2️⃣ CONTRATO: Al finalizar, recibirás en tu correo el contrato de prestación de servicios. Guárdalo para tu referencia.
-
-3️⃣ ACCESO: Tu entrenador activará tu cuenta y te enviará tus credenciales de acceso a la app.
-
-4️⃣ TU PLAN: Recibirás tu plan de nutrición y/o entrenamiento personalizado según tus objetivos.
-
-5️⃣ SEGUIMIENTO: A través de la app podrás ver tus planes, registrar tu progreso y comunicarte con tu entrenador.
-
-⚠️ IMPORTANTE: El enlace de registro es válido durante 7 días. Si caduca, solicita uno nuevo a tu entrenador.
-
-¿Tienes dudas? Contacta con nosotros en ${SENDER_EMAIL} o WhatsApp ${SENDER_WHATSAPP}.`;
-
 function buildWhatsAppMessage(name: string, link: string): string {
   const greeting = name ? ` ${name}` : '';
-  return `¡Hola${greeting}! 👋 Soy tu entrenador/a de *APD SPORT*.
+  return `¡Hola${greeting}! 👋
 
-Te envío tu enlace personalizado para completar tu ficha de salud y nutrición. Es el primer paso para que pueda preparar tu plan 100% adaptado a ti.
+Soy tu entrenador/a de *APD SPORT* 🏋️
 
-🔗 *Tu enlace de registro:*
+Te envío tu enlace personalizado para completar tu ficha de salud y nutrición. ¡Es el primer paso para preparar tu plan 100% a medida! 🎯
+
+🔗 *TU ENLACE DE REGISTRO:*
 ${link}
 
-${ONBOARDING_INSTRUCTIONS}
+━━━━━━━━━━━━━━━━━━━
+📋 *¿QUÉ OCURRE DESPUÉS?*
+━━━━━━━━━━━━━━━━━━━
 
-¡Mucho ánimo y bienvenido/a al equipo! 💪
+1️⃣ *Rellena tu ficha* ✍️
+Accede al enlace y completa el formulario con tus datos de salud y objetivos. Solo 5-10 minutos.
+
+2️⃣ *Recibe el contrato* 📄
+Al finalizar, te enviamos automáticamente el contrato a tu correo.
+
+3️⃣ *Activamos tu cuenta* 🔑
+Tu entrenador/a revisará tu ficha y te avisará cuando esté todo listo.
+
+4️⃣ *Tu plan personalizado* 🥗💪
+Nutrición y/o entrenamiento diseñados específicamente para tus objetivos.
+
+5️⃣ *Seguimiento continuo* 📈
+Desde la app: consulta tus planes, registra tu progreso y habla con tu entrenador/a.
+
+━━━━━━━━━━━━━━━━━━━
+⚠️ *IMPORTANTE:* El enlace es válido *7 días*. Si caduca, avísame y te envío uno nuevo.
+━━━━━━━━━━━━━━━━━━━
+
+¡Mucho ánimo y bienvenido/a al equipo! 💪🔥
 — *APD SPORT*`;
 }
 
 function buildEmailBody(name: string, link: string): string {
   const greeting = name ? ` ${name}` : '';
-  // Keep body short so it fits within mailto: URL limits (~2000 chars)
-  return `Hola${greeting},
+  // Short version for mailto: (must fit ~2000 char URL limit)
+  return `Hola${greeting} 👋
 
-Te envío tu enlace personalizado para completar tu ficha de salud en APD SPORT (5-10 min):
+Aqui tienes tu enlace de registro en APD SPORT (5-10 min):
 
-${link}
+🔗 ${link}
 
-Pasos:
-1. Accede al enlace y rellena tu ficha
-2. Recibirás el contrato por email al finalizar
-3. Tu entrenador/a activará tu cuenta
-4. Recibirás tu plan personalizado
+✅ Que ocurre despues:
+1️⃣ Rellena tu ficha de salud y objetivos
+2️⃣ Recibes el contrato en tu correo automaticamente
+3️⃣ Tu entrenador/a activa tu cuenta
+4️⃣ Recibes tu plan personalizado de nutricion y/o entrenamiento
 
-El enlace es valido 7 dias. Si caduca, solicita uno nuevo.
+⚠️ El enlace es valido 7 dias.
 
 APD SPORT
-${SENDER_EMAIL} | ${SENDER_WHATSAPP}`;
+📧 ${SENDER_EMAIL} | 📱 ${SENDER_WHATSAPP}`;
 }
 
 function buildEmailBodyFull(name: string, link: string): string {
   const greeting = name ? ` ${name}` : '';
-  return `Hola${greeting},
+  return `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏋️  APD SPORT — ¡BIENVENIDO/A AL EQUIPO!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Te escribimos desde APD SPORT para darte la bienvenida y enviarte tu enlace personalizado de registro.
+Hola${greeting} 👋
 
-Para que podamos preparar tu plan de nutrición y/o entrenamiento personalizado, necesitamos que completes tu ficha de salud. Solo te llevará entre 5 y 10 minutos.
+Nos alegramos de tenerte aquí. Estamos preparados para diseñar
+tu plan personalizado de nutrición y/o entrenamiento.
 
-TU ENLACE DE REGISTRO:
-${link}
+Para empezar, completa tu ficha de salud (solo 5-10 minutos):
 
-━━━━━━━━━━━━━━━━━━━━━━
-INSTRUCCIONES PARA EMPEZAR
-━━━━━━━━━━━━━━━━━━━━━━
+  ┌─────────────────────────────────────────┐
+  │  🔗  TU ENLACE DE REGISTRO              │
+  │                                         │
+  │  ${link.length > 40 ? link : link.padEnd(41)}  │
+  └─────────────────────────────────────────┘
 
-1. REGISTRO
-   Accede al enlace y rellena el formulario con tus datos de salud, hábitos y objetivos.
+──────────────────────────────────────────
+📋  ¿QUÉ OCURRE DESPUÉS?
+──────────────────────────────────────────
 
-2. CONTRATO DE SERVICIOS
-   Al finalizar el registro, recibirás automáticamente en este correo tu contrato de prestación de servicios. Guárdalo como referencia.
+  1️⃣  RELLENA TU FICHA  ✍️
+      Accede al enlace y completa el formulario con tus datos
+      de salud, hábitos y objetivos.
 
-3. ACTIVACIÓN DE TU CUENTA
-   Tu entrenador/a revisará tu ficha y activará tu acceso a la plataforma. Te notificaremos cuando esté listo.
+  2️⃣  RECIBE EL CONTRATO  📄
+      Al finalizar, te enviamos automáticamente el contrato de
+      prestación de servicios a este correo. Guárdalo.
 
-4. TU PLAN PERSONALIZADO
-   Una vez activa tu cuenta, encontrarás tu plan de nutrición y/o entrenamiento diseñado específicamente para ti y tus objetivos.
+  3️⃣  ACTIVACIÓN DE CUENTA  🔑
+      Tu entrenador/a revisará tu ficha y activará tu acceso
+      a la plataforma. Te avisaremos cuando esté listo.
 
-5. SEGUIMIENTO Y COMUNICACIÓN
-   A través de la app podrás consultar tus planes, registrar tu progreso semana a semana y contactar directamente con tu entrenador/a.
+  4️⃣  TU PLAN PERSONALIZADO  🥗 💪
+      Recibirás tu plan de nutrición y/o entrenamiento diseñado
+      específicamente para tus objetivos.
 
-━━━━━━━━━━━━━━━━━━━━━━
-⚠️  IMPORTANTE: El enlace de registro es válido durante 7 días. Si caduca, contacta con nosotros para recibir uno nuevo.
-━━━━━━━━━━━━━━━━━━━━━━
+  5️⃣  SEGUIMIENTO CONTINUO  📈
+      Desde la app: consulta tus planes, registra tu progreso
+      y habla directamente con tu entrenador/a.
 
-¿Tienes alguna pregunta antes de empezar? Estamos aquí para ayudarte.
+──────────────────────────────────────────
+⚠️  IMPORTANTE
+──────────────────────────────────────────
 
-Un saludo y ¡bienvenido/a al equipo!
+  El enlace de registro es válido durante 7 días.
+  Si caduca, escríbenos y te enviamos uno nuevo de inmediato.
 
-APD SPORT
-📧 ${SENDER_EMAIL}
-📱 WhatsApp: ${SENDER_WHATSAPP}`;
+──────────────────────────────────────────
+💬  ¿TIENES ALGUNA DUDA?
+──────────────────────────────────────────
+
+  📧  ${SENDER_EMAIL}
+  📱  ${SENDER_WHATSAPP}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+APD SPORT — Nutrición & Entrenamiento Personalizado
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 }
 
 export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
@@ -365,15 +389,15 @@ export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
                 </div>
               </div>
 
-              {/* Preview of instructions */}
+              {/* Preview of WhatsApp message */}
               <details className="rounded-xl border border-slate-200">
                 <summary className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-xl">
                   <Info className="w-3.5 h-3.5" />
-                  Ver instrucciones incluidas en el mensaje
+                  Ver previsualización del mensaje
                 </summary>
                 <div className="px-3 pb-3">
                   <pre className="text-xs text-slate-500 whitespace-pre-wrap font-sans bg-slate-50 rounded-lg p-3 mt-2 max-h-48 overflow-y-auto">
-                    {ONBOARDING_INSTRUCTIONS}
+                    {buildWhatsAppMessage(name || 'Paciente', link || 'https://tuenlace.com/...')}
                   </pre>
                 </div>
               </details>
