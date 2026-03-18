@@ -11,7 +11,7 @@ import {
 
 const EMPTY: PatientAnamnesis = {
   name: '', email: '', password: '', phone: '',
-  birthDate: '', gender: 'male', weight: 70, height: 170, bodyFat: undefined,
+  birthDate: '', gender: 'male', weight: 0, height: 0, bodyFat: undefined,
   chronicDiseases: [], medications: '', surgeries: '', familyHistory: '',
   previousDiets: [], eatingDisorders: '', supplementsUsed: [],
   activityLevel: 'moderate', activityDescription: '',
@@ -142,7 +142,7 @@ export const PatientRegister: React.FC = () => {
             <CheckCircle2 className="w-10 h-10 text-green-600" />
           </div>
           <h2 className="text-2xl font-bold text-slate-800 mb-3">¡Registro completado!</h2>
-          <p className="text-slate-500 mb-6">Tu ficha ha sido creada. Tu entrenador/nutricionista recibirá tus datos para preparar tu plan personalizado.</p>
+          <p className="text-slate-500 mb-6">Tu ficha ha sido creada. Tu entrenador recibirá tus datos para preparar tu plan personalizado.</p>
           <button onClick={() => navigate('/login')} className="px-6 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition">
             Iniciar Sesión
           </button>
@@ -203,27 +203,27 @@ export const PatientRegister: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-medium text-slate-600 mb-1">Nombre completo *</label>
-                  <input value={form.name} onChange={e => up('name', e.target.value)} placeholder="Nombre y apellidos" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input value={form.name} onChange={e => up('name', e.target.value)} placeholder="Nombre y apellidos" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Email *</label>
-                  <input type="email" value={form.email} onChange={e => up('email', e.target.value)} placeholder="correo@ejemplo.com" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="email" value={form.email} onChange={e => up('email', e.target.value)} placeholder="correo@ejemplo.com" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Teléfono</label>
-                  <input value={form.phone || ''} onChange={e => up('phone', e.target.value)} placeholder="+34 600 000 000" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input value={form.phone || ''} onChange={e => up('phone', e.target.value)} placeholder="+34 600 000 000" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Contraseña *</label>
-                  <input type="password" value={form.password} onChange={e => up('password', e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="password" value={form.password} onChange={e => up('password', e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Repetir contraseña *</label>
-                  <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repite la contraseña" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repite la contraseña" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de nacimiento</label>
-                  <input type="date" value={form.birthDate || ''} onChange={e => up('birthDate', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="date" value={form.birthDate || ''} onChange={e => up('birthDate', e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Género *</label>
@@ -237,15 +237,15 @@ export const PatientRegister: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Peso actual (kg) *</label>
-                  <input type="number" value={form.weight} min={30} max={250} step={0.5} onChange={e => up('weight', Number(e.target.value))} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="number" value={form.weight || ''} min={30} max={250} step={0.5} onChange={e => up('weight', Number(e.target.value))} placeholder="Ej: 75" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Altura (cm) *</label>
-                  <input type="number" value={form.height} min={100} max={230} onChange={e => up('height', Number(e.target.value))} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="number" value={form.height || ''} min={100} max={230} onChange={e => up('height', Number(e.target.value))} placeholder="Ej: 170" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">% Grasa corporal (si lo conoces)</label>
-                  <input type="number" value={form.bodyFat || ''} min={3} max={60} step={0.5} onChange={e => up('bodyFat', e.target.value ? Number(e.target.value) : undefined)} placeholder="Ej: 22" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="number" value={form.bodyFat || ''} min={3} max={60} step={0.5} onChange={e => up('bodyFat', e.target.value ? Number(e.target.value) : undefined)} placeholder="Ej: 22" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
               </div>
             </div>
@@ -261,15 +261,15 @@ export const PatientRegister: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Medicamentos que tomas habitualmente</label>
-                <textarea value={form.medications} onChange={e => up('medications', e.target.value)} placeholder="Indica nombre y dosis si es posible" rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.medications} onChange={e => up('medications', e.target.value)} placeholder="Indica nombre y dosis si es posible" rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Cirugías previas relevantes</label>
-                <textarea value={form.surgeries} onChange={e => up('surgeries', e.target.value)} placeholder="Ej: bypass gástrico, colecistectomía, tiroidectomía..." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.surgeries} onChange={e => up('surgeries', e.target.value)} placeholder="Ej: bypass gástrico, colecistectomía, tiroidectomía..." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Antecedentes familiares relevantes</label>
-                <textarea value={form.familyHistory} onChange={e => up('familyHistory', e.target.value)} placeholder="Diabetes, enfermedades cardíacas, obesidad en familia..." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.familyHistory} onChange={e => up('familyHistory', e.target.value)} placeholder="Diabetes, enfermedades cardíacas, obesidad en familia..." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-600 mb-2">Problemas gastrointestinales habituales</p>
@@ -302,7 +302,7 @@ export const PatientRegister: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Describe tu actividad física (deporte, frecuencia, duración...)</label>
-                <textarea value={form.activityDescription} onChange={e => up('activityDescription', e.target.value)} placeholder="Ej: Gimnasio 4 días/semana, 1h, pesas + cardio. Camino 30 min diarios." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.activityDescription} onChange={e => up('activityDescription', e.target.value)} placeholder="Ej: Gimnasio 4 días/semana, 1h, pesas + cardio. Camino 30 min diarios." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -403,7 +403,7 @@ export const PatientRegister: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Horarios habituales de comidas</label>
-                <input value={form.mealSchedule} onChange={e => up('mealSchedule', e.target.value)} placeholder="Ej: Desayuno 8h, comida 14h, cena 21h" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                <input value={form.mealSchedule} onChange={e => up('mealSchedule', e.target.value)} placeholder="Ej: Desayuno 8h, comida 14h, cena 21h" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-600 mb-2">Dietas que has seguido anteriormente</p>
@@ -415,7 +415,7 @@ export const PatientRegister: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Relación con la comida / Trastornos alimentarios previos (opcional)</label>
-                <textarea value={form.eatingDisorders} onChange={e => up('eatingDisorders', e.target.value)} placeholder="Describe si has tenido ansiedad por la comida, atracones, restricción severa, etc." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.eatingDisorders} onChange={e => up('eatingDisorders', e.target.value)} placeholder="Describe si has tenido ansiedad por la comida, atracones, restricción severa, etc." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
             </div>
           )}
@@ -452,7 +452,7 @@ export const PatientRegister: React.FC = () => {
                 <div className="flex gap-2">
                   <input value={dislikedInput} onChange={e => setDislikedInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && dislikedInput.trim()) { toggleArr('dislikedFoods', dislikedInput.trim()); setDislikedInput(''); } }}
-                    placeholder="Escribe y pulsa Enter" className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                    placeholder="Escribe y pulsa Enter" className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                   <button type="button" onClick={() => { if (dislikedInput.trim()) { toggleArr('dislikedFoods', dislikedInput.trim()); setDislikedInput(''); } }} className="px-4 py-2 bg-green-500 text-white rounded-xl text-sm font-medium hover:bg-green-600 transition">Añadir</button>
                 </div>
                 {form.dislikedFoods.filter(f => !DISLIKED_COMMON.includes(f)).length > 0 && (
@@ -491,16 +491,16 @@ export const PatientRegister: React.FC = () => {
               {(form.goal === 'lose_weight' || form.goal === 'gain_muscle') && (
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Peso objetivo (kg)</label>
-                  <input type="number" value={form.targetWeight || ''} min={30} max={250} step={0.5} onChange={e => up('targetWeight', e.target.value ? Number(e.target.value) : undefined)} placeholder="Ej: 70" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300" />
+                  <input type="number" value={form.targetWeight || ''} min={30} max={250} step={0.5} onChange={e => up('targetWeight', e.target.value ? Number(e.target.value) : undefined)} placeholder="Ej: 70" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:italic placeholder:text-slate-400" />
                 </div>
               )}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">¿Qué te motiva a cambiar tus hábitos?</label>
-                <textarea value={form.motivations} onChange={e => up('motivations', e.target.value)} placeholder="Cuéntame por qué quieres mejorar tu alimentación y qué esperas conseguir..." rows={3} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.motivations} onChange={e => up('motivations', e.target.value)} placeholder="Cuéntame por qué quieres mejorar tu alimentación y qué esperas conseguir..." rows={3} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Notas adicionales para el profesional</label>
-                <textarea value={form.notes} onChange={e => up('notes', e.target.value)} placeholder="Cualquier información adicional que consideres relevante..." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none" />
+                <textarea value={form.notes} onChange={e => up('notes', e.target.value)} placeholder="Cualquier información adicional que consideres relevante..." rows={2} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none placeholder:italic placeholder:text-slate-400" />
               </div>
             </div>
           )}

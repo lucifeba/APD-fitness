@@ -11,39 +11,39 @@ const SENDER_EMAIL = 'info@apdsport.com';
 
 function buildWhatsAppMessage(name: string, link: string): string {
   const greeting = name ? ` ${name}` : '';
-  return `¡Hola${greeting}! 👋
+  return `👋 ¡Hola${greeting}!
 
-Soy tu entrenador/a de *APD SPORT* 🏋️
+Soy tu entrenador de *APD SPORT* 💪
 
-Te envío tu enlace personalizado para completar tu ficha de salud y nutrición. ¡Es el primer paso para preparar tu plan 100% a medida! 🎯
+Te envío tu enlace personalizado para completar tu ficha de salud y nutrición. ¡Es el primer paso para preparar tu plan 100% a medida! ✅
 
-🔗 *TU ENLACE DE REGISTRO:*
+📎 *TU ENLACE DE REGISTRO:*
 ${link}
 
-━━━━━━━━━━━━━━━━━━━
-📋 *¿QUÉ OCURRE DESPUÉS?*
-━━━━━━━━━━━━━━━━━━━
+----------------------------
+📝 *¿QUÉ OCURRE DESPUÉS?*
+----------------------------
 
-1️⃣ *Rellena tu ficha* ✍️
+1. *Rellena tu ficha* ✏️
 Accede al enlace y completa el formulario con tus datos de salud y objetivos. Solo 5-10 minutos.
 
-2️⃣ *Recibe el contrato* 📄
+2. *Recibe el contrato* 📋
 Al finalizar, te enviamos automáticamente el contrato a tu correo.
 
-3️⃣ *Activamos tu cuenta* 🔑
-Tu entrenador/a revisará tu ficha y te avisará cuando esté todo listo.
+3. *Activamos tu cuenta* 🔑
+Tu entrenador revisará tu ficha y te avisará cuando esté todo listo.
 
-4️⃣ *Tu plan personalizado* 🥗💪
+4. *Tu plan personalizado* 💪
 Nutrición y/o entrenamiento diseñados específicamente para tus objetivos.
 
-5️⃣ *Seguimiento continuo* 📈
-Desde la app: consulta tus planes, registra tu progreso y habla con tu entrenador/a.
+5. *Seguimiento continuo* 📊
+Desde la app: consulta tus planes, registra tu progreso y habla con tu entrenador.
 
-━━━━━━━━━━━━━━━━━━━
-⚠️ *IMPORTANTE:* El enlace es válido *7 días*. Si caduca, avísame y te envío uno nuevo.
-━━━━━━━━━━━━━━━━━━━
+----------------------------
+❗ *IMPORTANTE:* El enlace es válido *7 días*. Si caduca, avísame y te envío uno nuevo.
+----------------------------
 
-¡Mucho ánimo y bienvenido/a al equipo! 💪🔥
+¡Mucho ánimo y bienvenido al equipo! ⭐
 — *APD SPORT*`;
 }
 
@@ -54,25 +54,23 @@ function buildEmailBody(name: string, link: string): string {
 
 Aqui tienes tu enlace de registro en APD SPORT (5-10 min):
 
-🔗 ${link}
+${link}
 
-✅ Que ocurre despues:
-1️⃣ Rellena tu ficha de salud y objetivos
-2️⃣ Recibes el contrato en tu correo automaticamente
-3️⃣ Tu entrenador/a activa tu cuenta
-4️⃣ Recibes tu plan personalizado de nutricion y/o entrenamiento
+Que ocurre despues:
+1. Rellena tu ficha de salud y objetivos
+2. Recibes el contrato en tu correo automaticamente
+3. Tu entrenador activa tu cuenta
+4. Recibes tu plan personalizado de nutricion y/o entrenamiento
 
-⚠️ El enlace es valido 7 dias.
+El enlace es valido 7 dias.
 
 APD SPORT
-📧 ${SENDER_EMAIL} | 📱 ${SENDER_WHATSAPP}`;
+${SENDER_EMAIL} | ${SENDER_WHATSAPP}`;
 }
 
 function buildEmailBodyFull(name: string, link: string): string {
   const greeting = name ? ` ${name}` : '';
-  return `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏋️  APD SPORT — ¡BIENVENIDO/A AL EQUIPO!
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  return `APD SPORT — ¡BIENVENIDO AL EQUIPO!
 
 Hola${greeting} 👋
 
@@ -81,53 +79,48 @@ tu plan personalizado de nutrición y/o entrenamiento.
 
 Para empezar, completa tu ficha de salud (solo 5-10 minutos):
 
-  ┌─────────────────────────────────────────┐
-  │  🔗  TU ENLACE DE REGISTRO              │
-  │                                         │
-  │  ${link.length > 40 ? link : link.padEnd(41)}  │
-  └─────────────────────────────────────────┘
+TU ENLACE DE REGISTRO:
+${link}
 
-──────────────────────────────────────────
-📋  ¿QUÉ OCURRE DESPUÉS?
-──────────────────────────────────────────
+------------------------------------------
+¿QUÉ OCURRE DESPUÉS?
+------------------------------------------
 
-  1️⃣  RELLENA TU FICHA  ✍️
-      Accede al enlace y completa el formulario con tus datos
-      de salud, hábitos y objetivos.
+  1. RELLENA TU FICHA ✏️
+     Accede al enlace y completa el formulario con tus datos
+     de salud, hábitos y objetivos.
 
-  2️⃣  RECIBE EL CONTRATO  📄
-      Al finalizar, te enviamos automáticamente el contrato de
-      prestación de servicios a este correo. Guárdalo.
+  2. RECIBE EL CONTRATO 📋
+     Al finalizar, te enviamos automáticamente el contrato de
+     prestación de servicios a este correo. Guárdalo.
 
-  3️⃣  ACTIVACIÓN DE CUENTA  🔑
-      Tu entrenador/a revisará tu ficha y activará tu acceso
-      a la plataforma. Te avisaremos cuando esté listo.
+  3. ACTIVACIÓN DE CUENTA 🔑
+     Tu entrenador revisará tu ficha y activará tu acceso
+     a la plataforma. Te avisaremos cuando esté listo.
 
-  4️⃣  TU PLAN PERSONALIZADO  🥗 💪
-      Recibirás tu plan de nutrición y/o entrenamiento diseñado
-      específicamente para tus objetivos.
+  4. TU PLAN PERSONALIZADO 💪
+     Recibirás tu plan de nutrición y/o entrenamiento diseñado
+     específicamente para tus objetivos.
 
-  5️⃣  SEGUIMIENTO CONTINUO  📈
-      Desde la app: consulta tus planes, registra tu progreso
-      y habla directamente con tu entrenador/a.
+  5. SEGUIMIENTO CONTINUO 📊
+     Desde la app: consulta tus planes, registra tu progreso
+     y habla directamente con tu entrenador.
 
-──────────────────────────────────────────
-⚠️  IMPORTANTE
-──────────────────────────────────────────
+------------------------------------------
+❗ IMPORTANTE
+------------------------------------------
 
   El enlace de registro es válido durante 7 días.
   Si caduca, escríbenos y te enviamos uno nuevo de inmediato.
 
-──────────────────────────────────────────
-💬  ¿TIENES ALGUNA DUDA?
-──────────────────────────────────────────
+------------------------------------------
+¿TIENES ALGUNA DUDA?
+------------------------------------------
 
-  📧  ${SENDER_EMAIL}
-  📱  ${SENDER_WHATSAPP}
+  ${SENDER_EMAIL}
+  ${SENDER_WHATSAPP}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-APD SPORT — Nutrición & Entrenamiento Personalizado
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+APD SPORT — Nutrición & Entrenamiento Personalizado`;
 }
 
 export const PatientInviteModal: React.FC<Props> = ({ onClose }) => {
