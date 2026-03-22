@@ -13,6 +13,8 @@ import { Assignments } from './pages/Assignments';
 import { Settings } from './pages/Settings';
 import { Nutrition } from './pages/Nutrition';
 import { NutritionGenerator } from './pages/NutritionGenerator';
+import { NutritionPlanWizard } from './pages/NutritionPlanWizard';
+import { RecipeLibrary } from './pages/RecipeLibrary';
 import { NutritionPlanDetail } from './pages/NutritionPlanDetail';
 import { AdminPanel } from './pages/admin/AdminPanel';
 import { PatientRegister } from './pages/PatientRegister';
@@ -66,6 +68,8 @@ const App: React.FC = () => {
         <Route path="/assignments" element={<ProtectedRoute><Assignments /></ProtectedRoute>} />
         <Route path="/nutrition" element={<ProtectedRoute><Nutrition /></ProtectedRoute>} />
         <Route path="/nutrition/generator" element={<ProtectedRoute><NutritionGenerator /></ProtectedRoute>} />
+        <Route path="/nutrition/wizard" element={<ProtectedRoute><NutritionPlanWizard /></ProtectedRoute>} />
+        <Route path="/nutrition/recipes" element={<ProtectedRoute><RecipeLibrary /></ProtectedRoute>} />
         <Route path="/nutrition/plan/:id" element={<ProtectedRoute><NutritionPlanDetail /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />

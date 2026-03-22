@@ -32,15 +32,15 @@ interface WizardData {
 const INITIAL_WIZARD: WizardData = {
   objective: '',
   level: '',
-  daysPerWeek: 3,
-  sessionDuration: 60,
+  daysPerWeek: 0,
+  sessionDuration: 0,
   equipment: '',
   focusMuscles: [],
   injuries: [],
   includeCardio: false,
-  includeMobility: true,
+  includeMobility: false,
   planName: '',
-  planDuration: 8,
+  planDuration: 0,
 };
 
 // ── Helpers de generación ─────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ function generatePlan(data: WizardData): TrainingPlan {
   const { objective, level, daysPerWeek, equipment, includeCardio, includeMobility, planName, planDuration } = data;
   if (!objective || !level || !equipment) throw new Error('Datos incompletos');
 
-  const splitConfig = SPLIT_CONFIGS[daysPerWeek] || SPLIT_CONFIGS[3];
+  const splitConfig = SPLIT_CONFIGS[daysPerWeek] || SPLIT_CONFIGS[4];
   const exercisesPerMuscle = level === 'beginner' ? 2 : level === 'intermediate' ? 3 : 4;
 
   const weeks: PlanWeek[] = Array.from({ length: planDuration }, (_, weekIdx) => {

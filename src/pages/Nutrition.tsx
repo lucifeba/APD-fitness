@@ -2,18 +2,20 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { useStore } from '../store/useStore';
+import { SPANISH_RECIPES } from '../data/spanishRecipes';
 import { AssignNutritionModal } from '../components/AssignNutritionModal';
-import type { NutritionPlan } from '../types';
+import type { NutritionPlanV2 } from '../types';
 import {
   Apple, Plus, ChefHat, Target, TrendingDown, TrendingUp,
   Activity, Trash2, Calendar, BarChart3, Zap, UserCheck, Users,
+  BookOpen, UtensilsCrossed, Flame, Search,
 } from 'lucide-react';
 
 export const Nutrition: React.FC = () => {
   const navigate = useNavigate();
-  const { nutritionProfiles, nutritionPlans, athletes, deleteNutritionProfile, deleteNutritionPlan } = useStore();
-  const [activeTab, setActiveTab] = useState<'overview' | 'profiles' | 'plans'>('overview');
-  const [assigningPlan, setAssigningPlan] = useState<NutritionPlan | null>(null);
+  const { nutritionPlansV2, athletes, deleteNutritionPlanV2 } = useStore();
+  const [activeTab, setActiveTab] = useState<'overview' | 'plans'>('overview');
+  const [assigningPlan, setAssigningPlan] = useState<NutritionPlanV2 | null>(null);
 
   const goalLabel: Record<string, string> = {
     lose_weight: 'Pérdida de Peso',
@@ -22,13 +24,10 @@ export const Nutrition: React.FC = () => {
     performance: 'Rendimiento',
     health: 'Salud General',
   };
-  const goalColors: Record<string, string> = {
-    lose_weight: 'text-orange-600 bg-orange-50',
-    maintain: 'text-blue-600 bg-blue-50',
-    gain_muscle: 'text-green-600 bg-green-50',
-    performance: 'text-purple-600 bg-purple-50',
-    health: 'text-teal-600 bg-teal-50',
-  };
+
+  const totalRecipes = SPANISH_RECIPES.length;
+  const airfryerRecipes = SPANISH_RECIPES.filter(r => r.isAirfryer).length;
+  const athleteRecipes = SPANISH_RECIPES.filter(r => r.forAthletes).length;
 
   return (
     <>
@@ -41,10 +40,10 @@ export const Nutrition: React.FC = () => {
               <Apple className="w-7 h-7 text-green-500" />
               Nutrición
             </h1>
-            <p className="text-slate-500 text-sm mt-1">Planificación nutricional personalizada para deportistas</p>
+            <p className="text-slate-500 text-sm mt-1">Planificación nutricional personalizada con recetas españolas</p>
           </div>
           <button
-            onClick={() => navigate('/nutrition/generator')}
+            onClick={() => navigate('/nutrition/wizard')}
             className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition shadow-sm"
           >
             <Plus className="w-4 h-4" />
@@ -56,7 +55,6 @@ export const Nutrition: React.FC = () => {
         <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mb-6 w-fit">
           {([
             { key: 'overview', label: 'Resumen' },
-            { key: 'profiles', label: 'Perfiles' },
             { key: 'plans', label: 'Planes' },
           ] as const).map(tab => (
             <button
@@ -77,10 +75,10 @@ export const Nutrition: React.FC = () => {
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
-                { label: 'Perfiles Creados', value: nutritionProfiles.length, icon: <Activity className="w-5 h-5 text-blue-500" />, bg: 'bg-blue-50' },
-                { label: 'Planes Activos', value: nutritionPlans.length, icon: <ChefHat className="w-5 h-5 text-green-500" />, bg: 'bg-green-50' },
-                { label: 'Recetas en BD', value: '99', icon: <Apple className="w-5 h-5 text-orange-500" />, bg: 'bg-orange-50' },
-                { label: 'Alimentos en BD', value: '420', icon: <BarChart3 className="w-5 h-5 text-purple-500" />, bg: 'bg-purple-50' },
+                { label: 'Planes Activos', value: nutritionPlansV2.length, icon: <ChefHat className="w-5 h-5 text-green-500" />, bg: 'bg-green-50' },
+                { label: 'Recetas Totales', value: totalRecipes, icon: <Apple className="w-5 h-5 text-orange-500" />, bg: 'bg-orange-50' },
+                { label: 'Recetas Airfryer', value: airfryerRecipes, icon: <Flame className="w-5 h-5 text-red-500" />, bg: 'bg-red-50' },
+                { label: 'Recetas Deportistas', value: athleteRecipes, icon: <Activity className="w-5 h-5 text-blue-500" />, bg: 'bg-blue-50' },
               ].map((stat, i) => (
                 <div key={i} className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
                   <div className={`w-10 h-10 ${stat.bg} rounded-xl flex items-center justify-center mb-3`}>
@@ -93,22 +91,30 @@ export const Nutrition: React.FC = () => {
             </div>
 
             {/* Quick actions */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <button
-                onClick={() => navigate('/nutrition/generator')}
+                onClick={() => navigate('/nutrition/wizard')}
                 className="bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-2xl p-6 text-left hover:opacity-95 transition shadow-md"
               >
                 <ChefHat className="w-8 h-8 mb-3 opacity-90" />
                 <h3 className="font-bold text-lg">Crear Plan Nutricional</h3>
-                <p className="text-green-100 text-sm mt-1">Genera un menú semanal personalizado con recetas españolas basado en tus objetivos y preferencias</p>
+                <p className="text-green-100 text-sm mt-1">Genera un plan semanal personalizado con cuestionario de nutricionista</p>
+              </button>
+              <button
+                onClick={() => navigate('/nutrition/recipes')}
+                className="bg-gradient-to-br from-orange-500 to-amber-600 text-white rounded-2xl p-6 text-left hover:opacity-95 transition shadow-md"
+              >
+                <BookOpen className="w-8 h-8 mb-3 opacity-90" />
+                <h3 className="font-bold text-lg">Biblioteca de Recetas</h3>
+                <p className="text-orange-100 text-sm mt-1">{totalRecipes} recetas saludables españolas con filtros por categoría, dieta y alergias</p>
               </button>
               <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
-                <Zap className="w-8 h-8 text-amber-500 mb-3" />
-                <h3 className="font-bold text-lg text-slate-800">Base de Datos Española</h3>
-                <p className="text-slate-500 text-sm mt-1">Más de 98 alimentos típicos de España con sus macronutrientes y 32 recetas tradicionales adaptadas al deporte</p>
+                <Zap className="w-8 h-8 text-purple-500 mb-3" />
+                <h3 className="font-bold text-lg text-slate-800">Sistema Inteligente</h3>
+                <p className="text-slate-500 text-sm mt-1">Generación automática con detección de alergias, intolerancias, patologías y sistema de intercambios</p>
                 <div className="mt-3 flex flex-wrap gap-1">
-                  {['Mediterránea', 'Tradicional', 'Sport', 'Equilibrada'].map(tag => (
-                    <span key={tag} className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs rounded-full font-medium">{tag}</span>
+                  {['TDEE', 'Intercambios', 'Patologías', 'Airfryer'].map(tag => (
+                    <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full font-medium">{tag}</span>
                   ))}
                 </div>
               </div>
@@ -131,69 +137,18 @@ export const Nutrition: React.FC = () => {
           </div>
         )}
 
-        {/* PROFILES */}
-        {activeTab === 'profiles' && (
-          <div>
-            {nutritionProfiles.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Activity className="w-8 h-8 text-slate-300" />
-                </div>
-                <h3 className="text-lg font-semibold text-slate-700 mb-2">Sin perfiles nutricionales</h3>
-                <p className="text-slate-400 text-sm mb-6">Crea un plan nutricional para empezar</p>
-                <button
-                  onClick={() => navigate('/nutrition/generator')}
-                  className="px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition"
-                >
-                  Crear primer plan
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {nutritionProfiles.map(profile => (
-                  <div key={profile.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
-                    <div className="flex justify-between items-start mb-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${goalColors[profile.goal] || 'text-slate-600 bg-slate-100'}`}>
-                        {goalLabel[profile.goal] || profile.goal}
-                      </span>
-                      <button onClick={() => deleteNutritionProfile(profile.id)} className="text-slate-300 hover:text-red-400 transition">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                      <div><p className="text-slate-400 text-xs">Peso</p><p className="font-semibold">{profile.weight} kg</p></div>
-                      <div><p className="text-slate-400 text-xs">Altura</p><p className="font-semibold">{profile.height} cm</p></div>
-                      <div><p className="text-slate-400 text-xs">Calorías</p><p className="font-semibold">{profile.targetCalories} kcal</p></div>
-                      <div><p className="text-slate-400 text-xs">Proteína</p><p className="font-semibold">{profile.targetProtein} g</p></div>
-                    </div>
-                    <div className="flex gap-1 flex-wrap">
-                      {[
-                        { label: `P: ${profile.targetProtein}g`, color: 'bg-blue-100 text-blue-700' },
-                        { label: `C: ${profile.targetCarbs}g`, color: 'bg-amber-100 text-amber-700' },
-                        { label: `G: ${profile.targetFat}g`, color: 'bg-red-100 text-red-700' },
-                      ].map(tag => (
-                        <span key={tag.label} className={`px-2 py-0.5 rounded text-xs font-medium ${tag.color}`}>{tag.label}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* PLANS */}
         {activeTab === 'plans' && (
           <div>
-            {nutritionPlans.length === 0 ? (
+            {nutritionPlansV2.length === 0 ? (
               <div className="text-center py-16">
                 <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <ChefHat className="w-8 h-8 text-slate-300" />
                 </div>
                 <h3 className="text-lg font-semibold text-slate-700 mb-2">Sin planes nutricionales</h3>
-                <p className="text-slate-400 text-sm mb-6">Genera tu primer plan con el asistente</p>
+                <p className="text-slate-400 text-sm mb-6">Genera tu primer plan con el asistente de nutricionista</p>
                 <button
-                  onClick={() => navigate('/nutrition/generator')}
+                  onClick={() => navigate('/nutrition/wizard')}
                   className="px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition"
                 >
                   Crear plan
@@ -201,18 +156,27 @@ export const Nutrition: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {nutritionPlans.map(plan => (
+                {nutritionPlansV2.map(plan => {
+                  const modeLabel = plan.mode === 'blocks'
+                    ? `${plan.weekCount / 2} bloque${plan.weekCount > 2 ? 's' : ''} de 2 semanas`
+                    : `${plan.weekCount} semana${plan.weekCount > 1 ? 's' : ''}`;
+                  return (
                   <div key={plan.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
                     <div className="flex justify-between items-start mb-3">
                       <h3 className="font-semibold text-slate-800 text-sm pr-2">{plan.name}</h3>
-                      <button onClick={() => deleteNutritionPlan(plan.id)} className="text-slate-300 hover:text-red-400 transition flex-shrink-0">
+                      <button onClick={() => deleteNutritionPlanV2(plan.id)} className="text-slate-300 hover:text-red-400 transition flex-shrink-0">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-3">
                       <Calendar className="w-3.5 h-3.5" />
-                      <span>{plan.days.length} días planificados · {plan.weeks} semanas</span>
+                      <span>{plan.days.length} días · {modeLabel}</span>
                     </div>
+                    {plan.context?.dietType && (
+                      <span className="inline-block px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full font-medium mb-3">
+                        {plan.context.dietType === 'omnivore' ? 'Omnívora' : plan.context.dietType === 'vegetarian' ? 'Vegetariana' : plan.context.dietType === 'vegan' ? 'Vegana' : plan.context.dietType === 'pescetarian' ? 'Pescetariana' : 'Mediterránea'}
+                      </span>
+                    )}
                     <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                       <div><p className="text-slate-400 text-xs">Calorías/día</p><p className="font-semibold">{plan.targetCalories} kcal</p></div>
                       <div><p className="text-slate-400 text-xs">Proteína/día</p><p className="font-semibold">{plan.targetProtein} g</p></div>
@@ -254,7 +218,7 @@ export const Nutrition: React.FC = () => {
                         Ver Menú
                       </button>
                       <button
-                        onClick={() => setAssigningPlan(plan)}
+                        onClick={() => setAssigningPlan(plan as any)}
                         className="flex items-center gap-1 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
@@ -262,7 +226,8 @@ export const Nutrition: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -271,7 +236,7 @@ export const Nutrition: React.FC = () => {
     </Layout>
     {assigningPlan && (
       <AssignNutritionModal
-        plan={assigningPlan}
+        plan={assigningPlan as any}
         onClose={() => setAssigningPlan(null)}
         onAssigned={() => setAssigningPlan(null)}
       />

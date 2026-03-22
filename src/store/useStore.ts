@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan, PendingPatient, PatientAnamnesis, AppNotification, ChatMessage, WeeklyFeedback, ScheduledNutritionSend } from '../types';
+import type { User, Athlete, TrainingPlan, PlanAssignment, Exercise, NutritionProfile, NutritionPlan, NutritionPlanV2, PendingPatient, PatientAnamnesis, AppNotification, ChatMessage, WeeklyFeedback, ScheduledNutritionSend } from '../types';
 import { EXERCISES_DB } from '../data/exercises';
 
 export interface StoredAccount {
@@ -98,6 +98,14 @@ interface AppState {
   getAthleteFeeedbacks: (athleteId: string) => WeeklyFeedback[];
   getTrainerFeedbacks: (trainerId: string) => WeeklyFeedback[];
 
+  // NutritionPlanV2 actions
+  nutritionPlansV2: NutritionPlanV2[];
+  addNutritionPlanV2: (plan: Omit<NutritionPlanV2, 'id'>) => NutritionPlanV2;
+  deleteNutritionPlanV2: (id: string) => void;
+  getNutritionPlanV2: (id: string) => NutritionPlanV2 | undefined;
+  updateNutritionPlanV2: (id: string, data: Partial<NutritionPlanV2>) => void;
+  assignNutritionV2ToAthlete: (planId: string, athleteId: string, adjustedCalories?: number, adjustedProtein?: number, adjustedCarbs?: number, adjustedFat?: number) => void;
+
   // Scheduled nutrition sends
   scheduledSends: ScheduledNutritionSend[];
   scheduleNutritionSend: (data: Omit<ScheduledNutritionSend, 'id' | 'createdAt' | 'sent'>) => ScheduledNutritionSend;
@@ -136,6 +144,7 @@ export const useStore = create<AppState>()(
       customExercises: [],
       nutritionProfiles: [],
       nutritionPlans: [],
+      nutritionPlansV2: [],
       notifications: [],
       chatMessages: [],
       feedbacks: [],
@@ -468,6 +477,49 @@ export const useStore = create<AppState>()(
         localStorage.setItem('apd-pending-patients', JSON.stringify(stored.filter(p => p.token !== token)));
       },
 
+      // ── NUTRITION PLAN V2 ──────────────────────────────────────────────────
+      addNutritionPlanV2: (data) => {
+        const { currentUser } = get();
+        const plan: NutritionPlanV2 = {
+          ...data,
+          id: generateId(),
+          trainerId: currentUser?.id || '',
+        };
+        set((state) => ({ nutritionPlansV2: [...state.nutritionPlansV2, plan] }));
+        return plan;
+      },
+
+      deleteNutritionPlanV2: (id) => {
+        set((state) => ({
+          nutritionPlansV2: state.nutritionPlansV2.filter((p) => p.id !== id),
+        }));
+      },
+
+      getNutritionPlanV2: (id) => get().nutritionPlansV2.find((p) => p.id === id),
+
+      updateNutritionPlanV2: (id, data) => {
+        set((state) => ({
+          nutritionPlansV2: state.nutritionPlansV2.map((p) => p.id === id ? { ...p, ...data } : p),
+        }));
+      },
+
+      assignNutritionV2ToAthlete: (planId, athleteId, adjustedCalories, adjustedProtein, adjustedCarbs, adjustedFat) => {
+        set((state) => ({
+          nutritionPlansV2: state.nutritionPlansV2.map((p) =>
+            p.id === planId
+              ? {
+                  ...p,
+                  athleteId,
+                  ...(adjustedCalories !== undefined && { targetCalories: adjustedCalories }),
+                  ...(adjustedProtein !== undefined && { targetProtein: adjustedProtein }),
+                  ...(adjustedCarbs !== undefined && { targetCarbs: adjustedCarbs }),
+                  ...(adjustedFat !== undefined && { targetFat: adjustedFat }),
+                }
+              : p
+          ),
+        }));
+      },
+
       // ── ATHLETE USER ACTIONS ────────────────────────────────────────────────
       approveAthlete: (userId) => {
         const storedAccounts = JSON.parse(localStorage.getItem('apd-accounts') || '[]') as { email: string; password: string; user: User }[];
@@ -689,6 +741,7 @@ export const useStore = create<AppState>()(
         customExercises: state.customExercises,
         nutritionProfiles: state.nutritionProfiles,
         nutritionPlans: state.nutritionPlans,
+        nutritionPlansV2: state.nutritionPlansV2,
         notifications: state.notifications,
         chatMessages: state.chatMessages,
         feedbacks: state.feedbacks,

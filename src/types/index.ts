@@ -260,12 +260,11 @@ export interface Recipe {
   name: string;
   category: 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'pre_workout' | 'post_workout';
   servings: number;
-  prepTime: number; // minutes
-  cookTime: number; // minutes
+  prepTime: number;
+  cookTime: number;
   difficulty: 'easy' | 'medium' | 'hard';
   ingredients: RecipeIngredient[];
   instructions: string[];
-  // Nutritional info per serving (calculated)
   calories: number;
   protein: number;
   carbs: number;
@@ -274,12 +273,105 @@ export interface Recipe {
   dietCompatibility: ('omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean' | 'keto' | 'paleo' | 'gluten_free' | 'lactose_free')[];
   tags: string[];
   isSpanish?: boolean;
-  region?: string; // Spanish region if applicable
+  region?: string;
   budget: 'low' | 'medium' | 'high';
 }
 
+// ── SPANISH NUTRITION SYSTEM ──────────────────────────────────────────────────
+
+export interface SRecipeIngredient {
+  name: string;
+  quantity: string;
+  optional?: boolean;
+}
+
+export type SRecipeCategory = 'breakfast' | 'mid_morning' | 'lunch' | 'snack' | 'dinner';
+export type SDietType = 'omnivore' | 'vegetarian' | 'vegan' | 'pescetarian' | 'mediterranean';
+export type SAllergen = 'gluten' | 'lactosa' | 'huevos' | 'frutos_secos' | 'pescado' | 'mariscos' | 'soja' | 'sesamo' | 'mostaza' | 'apio';
+export type SIntolerance = 'lactosa' | 'fructosa' | 'histamina' | 'fodmap' | 'sorbitol' | 'sulfitos' | 'cafeina' | 'salicilatos' | 'oxalatos' | 'polioles' | 'gluten' | 'solanaceas';
+export type SPathology = 'diabetes_t2' | 'hipertension' | 'hipotiroidismo' | 'anemia' | 'osteoporosis' | 'celiaquía' | 'crohn' | 'colon_irritable' | 'reflujo' | 'colesterol_alto' | 'gota' | 'insuf_renal' | 'higado_graso' | 'hipoglucemia' | 'hiperuricemia' | 'artritis' | 'sibo';
+
+export interface SpanishRecipe {
+  id: string;
+  name: string;
+  category: SRecipeCategory;
+  isAirfryer: boolean;
+  prepTime: number;
+  cookTime: number;
+  servings: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  ingredients: SRecipeIngredient[];
+  instructions: string[];
+  tags: string[];
+  dietTypes: SDietType[];
+  allergens: SAllergen[];
+  intolerances: SIntolerance[];
+  pathologyContraindications: SPathology[];
+  season: ('spring' | 'summer' | 'autumn' | 'winter' | 'all')[];
+  isSpanish: boolean;
+  region?: string;
+  budget: 'low' | 'medium' | 'high';
+  forAthletes: boolean;
+  swapGroup?: string; // for grouping exchanges
+}
+
+export type PlanMode = 'weeks' | 'blocks';
+
+export interface NutritionistContext {
+  patientDescription: string;
+  goal: string;
+  dietType: SDietType;
+  allergies: SAllergen[];
+  intolerances: SIntolerance[];
+  pathologies: SPathology[];
+  mealsPerDay: number;
+  specificRestrictions: string;
+  specificInstructions: string;
+  includeCoffee: boolean;
+  milkType: 'dairy' | 'plant';
+  includeDessertLunch: boolean;
+  includeDessertDinner: boolean;
+  dessertTypes: string[];
+  includeProteinShakes: boolean;
+  proteinShakeDays: number;
+  isPreCompetition: boolean;
+  competitionDate: string;
+  budget: 'low' | 'medium' | 'high';
+  cookingTime: 'minimal' | 'moderate' | 'extensive';
+}
+
+export interface NutritionPlanV2 {
+  id: string;
+  trainerId: string;
+  athleteId?: string;
+  name: string;
+  mode: PlanMode;
+  weekCount: number;          // total weeks
+  blockSize: number;          // days per block-week (7 for weekly, 14 for 2-week blocks)
+  days: DayMenu[];            // flat array: weekCount * 7 days
+  targetCalories: number;
+  targetProtein: number;
+  targetCarbs: number;
+  targetFat: number;
+  context: NutritionistContext;
+  notes?: string;
+  preCompetitionDate?: string;
+  createdAt: string;
+  // Patient profile
+  age?: number;
+  gender?: 'male' | 'female';
+  weight?: number;
+  height?: number;
+  activityLevel?: string;
+}
+
 export interface MealPlan {
-  mealType: 'breakfast' | 'mid_morning' | 'lunch' | 'snack' | 'dinner' | 'pre_workout' | 'post_workout';
+  mealType: 'breakfast' | 'mid_morning' | 'lunch' | 'snack' | 'dinner' | 'pre_workout' | 'post_workout' | 'dessert' | 'protein_shake';
   recipeId: string;
   recipeName: string;
   calories: number;
@@ -291,11 +383,14 @@ export interface MealPlan {
 export interface DayMenu {
   dayNumber: number;
   dayName: string;
+  weekNumber?: number;
   meals: MealPlan[];
   totalCalories: number;
   totalProtein: number;
   totalCarbs: number;
   totalFat: number;
+  isPreCompDay?: boolean;
+  notes?: string;
 }
 
 export interface NutritionPlan {
@@ -311,6 +406,8 @@ export interface NutritionPlan {
   targetCarbs: number;
   targetFat: number;
   notes?: string;
+  preCompetitionDate?: string;
+  varyWeekly?: boolean;
   createdAt: string;
 }
 
