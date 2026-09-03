@@ -1,0 +1,20 @@
+# Copia a .dev.vars para desarrollo local. En producción usa `wrangler secret put NOMBRE`.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=una-cadena-larga-aleatoria
+# Tu id numérico de Telegram (lo da @userinfobot). Si está vacío, el primer chat que envíe el PAIRING_CODE queda emparejado.
+OWNER_CHAT_ID=
+PAIRING_CODE=cambia-esto
+ADMIN_TOKEN=otra-cadena-larga
+# URL pública del Worker, p. ej. https://secretario.TU-SUBDOMINIO.workers.dev
+PUBLIC_URL=
+# Google OAuth (Gmail, Drive, Calendar) para info@apdsport.com
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN=
+# Cerebros de respaldo, todos con nivel gratuito. Opcionales pero recomendados.
+GEMINI_API_KEY=
+GROQ_API_KEY=
+OPENROUTER_API_KEY=
+# Búsqueda web. Opcionales: sin ellos se usa DuckDuckGo.
+TAVILY_API_KEY=
+BRAVE_API_KEY=

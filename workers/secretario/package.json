@@ -1,0 +1,21 @@
+{
+  "name": "secretario",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Secretario de Pablo: agente personal en Telegram sobre Cloudflare Workers con IA gratuita.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "vectorize:create": "wrangler vectorize create secretario-memoria --dimensions=1024 --metric=cosine",
+    "deploy:full": "wrangler d1 migrations apply DB --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
+    "typescript": "~5.9.3",
+    "wrangler": "^4.128.0"
+  }
+}
