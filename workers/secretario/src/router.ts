@@ -305,8 +305,8 @@ export async function listModels(env: Env, provider: 'gemini' | 'groq' | 'openro
 }
 
 /** Diagnóstico: prueba cada cerebro de la cadena con una petición mínima que exige una llamada a herramienta. */
-export async function probeProviders(env: Env, tier: Tier = 'smart'): Promise<{ provider: string; model: string; ok: boolean; ms: number; toolCalls?: string[]; content?: string; error?: string }[]> {
-  const chain = parseChain(tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST, '');
+export async function probeProviders(env: Env, tier: Tier = 'smart', chainSpec?: string): Promise<{ provider: string; model: string; ok: boolean; ms: number; toolCalls?: string[]; content?: string; error?: string }[]> {
+  const chain = parseChain(chainSpec || (tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST), '');
   const tools: ToolDef[] = [
     { name: 'get_time', description: 'Devuelve la hora actual.', parameters: { type: 'object', properties: {}, required: [] } },
   ];

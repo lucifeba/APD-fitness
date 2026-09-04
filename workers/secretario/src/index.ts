@@ -104,7 +104,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/admin/probe') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
         const tier = url.searchParams.get('tier') === 'fast' ? 'fast' : 'smart';
-        return json({ ok: true, tier, results: await probeProviders(env, tier) });
+        return json({ ok: true, tier, results: await probeProviders(env, tier, url.searchParams.get('chain') || undefined) });
       }
       if (req.method === 'POST' && url.pathname === '/admin/models') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
