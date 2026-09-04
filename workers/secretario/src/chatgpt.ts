@@ -207,11 +207,17 @@ function toResponsesInput(messages: ChatMessage[]): { instructions: string; inpu
   return { instructions, input };
 }
 
+/** Última respuesta cruda del backend (solo para diagnóstico desde /admin). */
+export let lastRawSse = '';
+
 /** Lee el flujo SSE y devuelve el objeto `response` final (evento response.completed). */
 async function readSse(r: Response): Promise<any> {
   const text = await r.text();
+  lastRawSse = text.length > 6000 ? `…${text.slice(-6000)}` : text;
   let final: any = null;
   let lastError: string | null = null;
+  // El backend de Codex manda cada elemento en response.output_item.done y deja `output` vacío al final.
+  const items: any[] = [];
   for (const block of text.split(/\n\n+/)) {
     const dataLines = block
       .split('\n')
@@ -223,6 +229,7 @@ async function readSse(r: Response): Promise<any> {
     try {
       const ev = JSON.parse(data);
       if (ev.type === 'response.completed' || ev.type === 'response.done') final = ev.response;
+      else if (ev.type === 'response.output_item.done' && ev.item) items.push(ev.item);
       else if (ev.type === 'response.failed') lastError = ev.response?.error?.message || 'response.failed';
       else if (ev.type === 'error') lastError = ev.error?.message || ev.message || 'error';
     } catch {
@@ -230,6 +237,7 @@ async function readSse(r: Response): Promise<any> {
     }
   }
   if (!final) throw new Error(lastError ? `ChatGPT: ${lastError}` : `ChatGPT: respuesta sin evento final (${text.slice(0, 200)})`);
+  if (!Array.isArray(final.output) || !final.output.length) final.output = items;
   return final;
 }
 
@@ -246,8 +254,9 @@ export async function callChatGPT(env: Env, model: string, messages: ChatMessage
     store: false,
     stream: true,
     include: [],
-    max_output_tokens: maxTokens,
   };
+  // El backend de Codex no admite max_output_tokens: se limita por instrucciones y por el modelo.
+  void maxTokens;
   if (tools.length) body.tools = tools.map((tl) => ({ type: 'function', name: tl.name, description: tl.description, parameters: tl.parameters, strict: false }));
   const headers: Record<string, string> = {
     authorization: `Bearer ${t.access_token}`,

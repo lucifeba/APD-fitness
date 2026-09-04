@@ -76,8 +76,8 @@
         "TIMEZONE": "Europe/Madrid",
         "LANGUAGE": "es",
         "DAILY_NEURON_BUDGET": "9000",
-        "MODEL_CHAIN_SMART": "chatgpt:gpt-5,openai:gpt-5-mini,cf:@cf/openai/gpt-oss-120b,gemini:gemini-3.6-flash,groq:openai/gpt-oss-120b,cf:@cf/meta/llama-4-scout-17b-16e-instruct,openrouter:google/gemma-4-26b-a4b-it:free,openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
-        "MODEL_CHAIN_FAST": "cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast,gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-20b,cf:@cf/qwen/qwen3-30b-a3b-fp8,openrouter:google/gemma-4-26b-a4b-it:free",
+        "MODEL_CHAIN_SMART": "chatgpt:gpt-5.5,cf:@cf/openai/gpt-oss-120b,gemini:gemini-3.6-flash,groq:openai/gpt-oss-120b,cf:@cf/meta/llama-4-scout-17b-16e-instruct,openrouter:google/gemma-4-26b-a4b-it:free,openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+        "MODEL_CHAIN_FAST": "chatgpt:gpt-5.4-mini,cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast,gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-20b,cf:@cf/qwen/qwen3-30b-a3b-fp8,openrouter:google/gemma-4-26b-a4b-it:free",
         "MODEL_VISION": "@cf/meta/llama-3.2-11b-vision-instruct",
         "MODEL_STT": "@cf/openai/whisper-large-v3-turbo",
         "MODEL_EMBED": "@cf/baai/bge-m3",
@@ -90,7 +90,8 @@
         "ALLOWED_CALENDARS": "",
         "ADMIN_EMAILS": "info@apdsport.com",
         "BRAND_NAME": "Nuvia",
-        "BRAND_TAGLINE": "Tu secretaria digital"
+        "BRAND_TAGLINE": "Tu secretaria digital",
+        "CHATGPT_RELAY_URL": "https://nuvia-chatgpt-relay.vercel.app/api/responses"
       }
     }
   }

@@ -6,7 +6,7 @@ import { runAgent } from './agent';
 import { forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
 import { reindexMemories } from './memory';
 import { chat, forgetChatGPTCache, listModels, probeProviders } from './router';
-import { chatgptDisconnect, pollDeviceLogin, startDeviceLogin } from './chatgpt';
+import { chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
 import { audit } from './db';
 import { resolveDay, uid } from './util';
 import { appShell, connectOpenAI, disconnectOpenAI, landing, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
@@ -195,6 +195,17 @@ export default {
           sendText: async (text) => void sent.push(text),
         });
         return json({ ok: true, provider: r.provider, toolsUsed: r.toolsUsed, sent, text: r.text, messages: r.messages });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/chatgpt-raw') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const b = await req.json<{ text: string }>();
+        let error = '';
+        try {
+          await chat(env, 'smart', [{ role: 'user', content: b.text }], [], 300, 'chatgpt');
+        } catch (e: any) {
+          error = String(e?.message ?? e);
+        }
+        return new Response(`error: ${error}\n\n${lastRawSse}`, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
       }
       if (req.method === 'POST' && url.pathname === '/admin/agenda') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
