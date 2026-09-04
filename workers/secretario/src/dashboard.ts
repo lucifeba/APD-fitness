@@ -206,6 +206,20 @@ export function landing(env: Env): string {
 <p class="muted small">Acceso reservado a ${esc(env.OWNER_EMAIL || 'la propietaria')}.</p></section>`;
 }
 
+/** Páginas legales mínimas que Google exige para publicar la app OAuth. */
+export function legalPage(env: Env, kind: 'privacidad' | 'condiciones'): string {
+  const brand = esc(env.BRAND_NAME || 'Secretario');
+  const owner = esc(env.OWNER_EMAIL || '');
+  if (kind === 'privacidad')
+    return `<section class="card"><h2>Política de privacidad</h2>
+<p class="muted">${brand} es un asistente personal de uso privado para una única persona (${owner}). Accede, con autorización expresa de esa persona y mediante OAuth de Google, a su correo, calendario, archivos de Drive y tareas, exclusivamente para ejecutar las órdenes que ella le da por Telegram y preparar sus resúmenes de agenda.</p>
+<p class="muted">Los datos se procesan en Cloudflare (Workers, D1 y Vectorize) y no se comparten con terceros ni se usan para publicidad ni para entrenar modelos. Los tokens de acceso se guardan cifrados y pueden revocarse en cualquier momento desde la cuenta de Google (Seguridad → Aplicaciones de terceros) o desconectando el servicio en este panel. El uso de datos de Google cumple la Política de datos de usuario de los servicios de API de Google, incluidos los requisitos de uso limitado.</p>
+<p class="muted">Contacto: ${owner}.</p><a class="btn" href="/">Volver</a></section>`;
+  return `<section class="card"><h2>Condiciones del servicio</h2>
+<p class="muted">${brand} se ofrece tal cual, como herramienta privada de productividad para su propietaria. No hay registro público ni terceros usuarios. La propietaria es responsable de las órdenes que da al asistente; las acciones que modifican datos externos (enviar correos, crear o borrar eventos, cambiar archivos) requieren siempre su confirmación explícita.</p>
+<p class="muted">Contacto: ${owner}.</p><a class="btn" href="/">Volver</a></section>`;
+}
+
 export function appShell(email: string): string {
   return `<div data-email="${esc(email)}" id="shell"><section class="card center"><p class="muted">Cargando estado…</p></section></div>`;
 }

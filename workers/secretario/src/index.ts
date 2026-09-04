@@ -9,7 +9,7 @@ import { chat, forgetChatGPTCache, listModels, probeProviders } from './router';
 import { chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
 import { audit } from './db';
 import { resolveDay, uid } from './util';
-import { appShell, connectOpenAI, disconnectOpenAI, landing, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
+import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 
@@ -101,6 +101,7 @@ export default {
         const email = await sessionEmail(req, env);
         return page(env, email ? appShell(email) : landing(env));
       }
+      if (req.method === 'GET' && (url.pathname === '/privacidad' || url.pathname === '/condiciones')) return page(env, legalPage(env, url.pathname.slice(1) as 'privacidad' | 'condiciones'));
       if (req.method === 'GET' && url.pathname === '/auth/google') {
         if (!env.GOOGLE_CLIENT_ID || !env.PUBLIC_URL) return page(env, '<section class="card center"><h2>Panel sin configurar</h2><p class="muted">Faltan las credenciales de Google del Worker.</p></section>', 500);
         return loginRedirect(env, uid('st_'));
