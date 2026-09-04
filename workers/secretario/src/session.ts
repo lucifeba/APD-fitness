@@ -1,5 +1,6 @@
 import { learn, runAgent, summarize } from './agent';
-import { audit, getSetting, setSetting, usageSummary } from './db';
+import { audit, getSetting, receipt, setSetting, usageSummary } from './db';
+import { ask } from './router';
 import type { ChatMessage, Env, Incoming, PendingAction } from './env';
 import { googleConfigured, oauthStartUrl } from './google';
 import { heartbeat } from './heartbeat';
@@ -11,7 +12,7 @@ import { normalizeSecretName, vaultList, vaultSet } from './tools/autonomyTools'
 import type { ToolCtx } from './tools/types';
 import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, typing } from './telegram';
 import { buildAgenda, renderAgenda } from './agenda';
-import { clip, inQuietHours, localTime, nextCron, now, resolveDay, uid } from './util';
+import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
 
 interface State {
   history: ChatMessage[];
@@ -470,6 +471,44 @@ export class SecretarioSession implements DurableObject {
     await this.rescheduleAlarm();
   }
 
+  /**
+   * Parte diario a la hora DAILY_BRIEF (ventana de 30 min, una vez al día): agenda de mañana con semáforo,
+   * pendientes y una propuesta razonada de replanificación que termina en una sola pregunta. No mueve nada.
+   */
+  private async dailyBrief(chatId: string): Promise<void> {
+    const spec = (this.env.DAILY_BRIEF || '').trim();
+    const m = spec.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m || !(await googleConfigured(this.env))) return;
+    const p = localParts(this.tz);
+    const [h, mi] = p.time.split(':').map(Number);
+    const nowMin = h * 60 + mi;
+    const target = Number(m[1]) * 60 + Number(m[2]);
+    if (nowMin < target || nowMin >= target + 30) return;
+    if (!(await receipt(this.env, `brief:${p.date}`))) return;
+    const tomorrow = addDays(p.date, 1);
+    const ag = await buildAgenda(this.env, this.tz, tomorrow, 1);
+    const rendered = renderAgenda(ag, this.tz);
+    const owner = this.env.OWNER_NAME || 'Pablo';
+    let proposal = '';
+    try {
+      proposal = await ask(
+        this.env,
+        'smart',
+        `Eres el secretario personal de ${owner}. Recibes la agenda de mañana ya formateada (eventos de todos sus calendarios, tareas que vencen, vencidas y solapamientos). Redacta en español de España, breve y accionable, SOLO estas partes:
+1) "Resumen ejecutivo": dos frases con lo importante de mañana.
+2) "Propuesta": si hay solapamientos, tareas vencidas o carga irreal, propón cambios concretos (qué mover, a qué hora, qué delegar o descartar), considerando desplazamientos y descansos. Si todo está bien, dilo en una línea.
+3) Termina con UNA sola pregunta de confirmación (p. ej. "¿Aplico estos cambios?"). No inventes eventos ni datos. No repitas la agenda.`,
+        `Hoy es ${longDate(p.date)}. Agenda de mañana:\n\n${rendered}`,
+        600,
+      );
+    } catch (e: any) {
+      console.warn('propuesta parte diario', e?.message);
+    }
+    await send(this.env, chatId, `🗓 **Parte de mañana**\n\n${rendered}${proposal ? `\n\n${proposal}` : ''}`);
+    this.state.history.push({ role: 'assistant', content: `[Parte diario enviado para ${tomorrow}]: ${clip(rendered, 800)}\n${clip(proposal, 600)}` });
+    await this.save();
+  }
+
   private async runHeartbeat(): Promise<void> {
     const state = await this.load();
     if ((this.env.HEARTBEAT_ENABLED ?? 'true') !== 'true' || state.mode === 'silencio') return;
@@ -482,6 +521,7 @@ export class SecretarioSession implements DurableObject {
       state.history.push({ role: 'assistant', content: `[Aviso proactivo enviado]: ${clip(text, 500)}` });
       await this.save();
     }
+    await this.dailyBrief(chatId).catch((e) => console.warn('parte diario', e?.message));
     // Consolidación diaria del perfil a primera hora.
     const stamp = now().slice(0, 10);
     if ((await getSetting(this.env, 'profile_day')) !== stamp) {

@@ -35,6 +35,20 @@ export interface Env {
   HEARTBEAT_ENABLED?: string;
   QUIET_HOURS?: string;
   MAX_AGENT_STEPS?: string;
+  /** Clave de OpenAI (también puede vivir en el baúl como OPENAI_API_KEY, conectada desde el panel). */
+  OPENAI_API_KEY?: string;
+
+  // Personalización por cliente
+  /** Lista de Google Tasks por defecto (nombre). Si no, la primera. */
+  DEFAULT_TASK_LIST?: string;
+  /** Hora local HH:MM del parte diario de agenda (vacío = desactivado). */
+  DAILY_BRIEF?: string;
+  /** Nombres de calendarios a considerar, separados por comas (vacío = todos). */
+  ALLOWED_CALENDARS?: string;
+  /** Correos con acceso al panel web además del propietario. */
+  ADMIN_EMAILS?: string;
+  BRAND_NAME?: string;
+  BRAND_TAGLINE?: string;
 }
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';

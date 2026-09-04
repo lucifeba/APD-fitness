@@ -244,8 +244,13 @@ let calCache: { at: number; list: CalInfo[] } | null = null;
 export async function calendarsList(env: Env, force = false): Promise<CalInfo[]> {
   if (!force && calCache && Date.now() - calCache.at < 10 * 60_000) return calCache.list;
   const j = await gapi<any>(env, 'https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&showHidden=false');
+  const allowed = (env.ALLOWED_CALENDARS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
   const list: CalInfo[] = (j.items ?? [])
     .filter((c: any) => !c.deleted && !c.hidden)
+    .filter((c: any) => !allowed.length || c.primary || allowed.includes(String(c.summaryOverride || c.summary || '').toLowerCase()))
     .map((c: any) => ({
       id: String(c.id),
       name: String(c.summaryOverride || c.summary || c.id),
@@ -473,7 +478,10 @@ export async function taskLists(env: Env, force = false): Promise<TaskListInfo[]
 
 async function resolveTaskList(env: Env, listRef?: string): Promise<TaskListInfo> {
   const lists = await taskLists(env);
-  if (!listRef || listRef === '@default') return lists[0] ?? { id: '@default', title: 'Mis tareas' };
+  if (!listRef || listRef === '@default') {
+    const def = (env.DEFAULT_TASK_LIST || '').trim().toLowerCase();
+    return (def ? lists.find((l) => l.title.toLowerCase() === def) : undefined) ?? lists[0] ?? { id: '@default', title: 'Mis tareas' };
+  }
   const ref = listRef.trim().toLowerCase();
   return lists.find((l) => l.id === listRef) ?? lists.find((l) => l.title.toLowerCase() === ref) ?? lists.find((l) => l.title.toLowerCase().includes(ref)) ?? lists[0] ?? { id: '@default', title: 'Mis tareas' };
 }

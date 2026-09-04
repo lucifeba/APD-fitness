@@ -6,7 +6,8 @@ import { runAgent } from './agent';
 import { forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
 import { reindexMemories } from './memory';
 import { chat, listModels, probeProviders } from './router';
-import { resolveDay } from './util';
+import { resolveDay, uid } from './util';
+import { appShell, connectOpenAI, disconnectOpenAI, landing, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 
@@ -93,6 +94,32 @@ export default {
     const url = new URL(req.url);
     try {
       if (req.method === 'POST' && url.pathname === '/telegram/webhook') return await handleTelegram(req, env, ctx);
+      // ---------- Panel web ----------
+      if (req.method === 'GET' && url.pathname === '/') {
+        const email = await sessionEmail(req, env);
+        return page(env, email ? appShell(email) : landing(env));
+      }
+      if (req.method === 'GET' && url.pathname === '/auth/google') {
+        if (!env.GOOGLE_CLIENT_ID || !env.PUBLIC_URL) return page(env, '<section class="card center"><h2>Panel sin configurar</h2><p class="muted">Faltan las credenciales de Google del Worker.</p></section>', 500);
+        return loginRedirect(env, uid('st_'));
+      }
+      if (req.method === 'GET' && url.pathname === '/auth/google/callback') return loginCallback(req, env);
+      if (url.pathname === '/auth/logout') return logout();
+      if (url.pathname.startsWith('/api/')) {
+        const email = await sessionEmail(req, env);
+        if (!email && !adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        if (req.method === 'GET' && url.pathname === '/api/status') return json({ ok: true, ...(await statusJson(env)) });
+        if (req.method === 'POST' && url.pathname === '/api/openai') {
+          const b = await req.json<{ key?: string }>();
+          return json(await connectOpenAI(env, String(b.key || '')));
+        }
+        if (req.method === 'DELETE' && url.pathname === '/api/openai') {
+          await disconnectOpenAI(env);
+          return json({ ok: true });
+        }
+        if (req.method === 'POST' && url.pathname === '/api/probe') return json({ ok: true, results: await probeJson(env) });
+        return json({ ok: false, error: 'not found' }, 404);
+      }
       if (url.pathname === '/health') {
         const owner = await ownerChatId(env);
         return json({ ok: true, service: env.BOT_NAME || 'Secretario', paired: Boolean(owner), time: new Date().toISOString() });
@@ -109,7 +136,7 @@ export default {
       if (req.method === 'POST' && url.pathname === '/admin/models') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
         const p = url.searchParams.get('provider');
-        if (p !== 'gemini' && p !== 'groq' && p !== 'openrouter') return json({ ok: false, error: 'provider debe ser gemini, groq u openrouter' }, 400);
+        if (p !== 'gemini' && p !== 'groq' && p !== 'openrouter' && p !== 'openai') return json({ ok: false, error: 'provider debe ser gemini, groq, openrouter u openai' }, 400);
         return json({ ok: true, provider: p, models: await listModels(env, p) });
       }
       if (req.method === 'POST' && url.pathname === '/admin/ask') {

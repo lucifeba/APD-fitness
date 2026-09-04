@@ -115,11 +115,17 @@ export async function ingestDocument(env: Env, doc: { title: string; text: strin
       'smart',
       `Resumes documentos para el asistente personal de un entrenador y consultor. Devuelve SOLO un objeto JSON, sin texto alrededor ni bloques de código: {"summary":"...","facts":[{"content":"...","kind":"fact|person|project|preference","importance":1-5}]}. "summary": 3 a 6 frases en español con qué es el documento, de quién, y los datos clave (cifras, fechas, nombres, decisiones). "facts": hasta 6 hechos duraderos y reutilizables que conviene recordar siempre (nada trivial), cada uno en una frase completa y autocontenida que incluya de quién o de qué habla (p. ej. "Marcelino Testez tiene un FTP de 285 W", nunca "FTP 285 W"). Si no hay hechos, [].`,
       `Título: ${doc.title}\n\n${clip(text, 9000)}`,
-      900,
+      1600,
     );
-    const parsed = safeJson<{ summary?: string; facts?: { content: string; kind?: string; importance?: number }[] }>(out, {});
-    if (!parsed.summary) console.warn('resumen sin JSON válido:', JSON.stringify(out.slice(0, 400)));
-    summary = String(parsed.summary ?? '').trim() || clip(out.replace(/[{}"[\]]/g, ' ').trim(), 400) || clip(text, 400);
+    let parsed = safeJson<{ summary?: string; facts?: { content: string; kind?: string; importance?: number }[] }>(out, {});
+    if (!parsed.summary) {
+      // Salida truncada o mal formada: rescatamos al menos el resumen y los hechos completos.
+      console.warn('resumen sin JSON válido:', JSON.stringify(out.slice(0, 300)));
+      const s = out.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      const facts = [...out.matchAll(/\{\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"kind"\s*:\s*"(\w+)"\s*,\s*"importance"\s*:\s*(\d)/g)].map((m) => ({ content: m[1].replace(/\\"/g, '"'), kind: m[2], importance: Number(m[3]) }));
+      parsed = { summary: s ? s[1].replace(/\\"/g, '"') : '', facts };
+    }
+    summary = String(parsed.summary ?? '').trim() || clip(text, 400);
     for (const f of (parsed.facts ?? []).slice(0, 6)) {
       if (!f?.content) continue;
       const mid = await remember(env, `${f.content} (fuente: ${doc.title})`, f.kind || 'fact', 'doc', Number(f.importance) || 3).catch(() => null);

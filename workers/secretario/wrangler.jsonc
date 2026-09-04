@@ -7,7 +7,7 @@
   "observability": { "enabled": true },
   // El sandbox de código (QuickJS) se importa como módulo WebAssembly compilado.
   "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
-  // Latido cada 30 minutos: tareas programadas, correos importantes, agenda próxima.
+  // Latido cada 30 minutos: tareas programadas, correos importantes, agenda próxima, parte diario.
   "triggers": { "crons": ["*/30 * * * *"] },
   "ai": { "binding": "AI" },
   "d1_databases": [
@@ -18,17 +18,11 @@
       "migrations_dir": "migrations"
     }
   ],
-  "vectorize": [
-    { "binding": "VECTORS", "index_name": "secretario-memoria" }
-  ],
+  "vectorize": [{ "binding": "VECTORS", "index_name": "secretario-memoria" }],
   "durable_objects": {
-    "bindings": [
-      { "name": "SESSION", "class_name": "SecretarioSession" }
-    ]
+    "bindings": [{ "name": "SESSION", "class_name": "SecretarioSession" }]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SecretarioSession"] }
-  ],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SecretarioSession"] }],
   "vars": {
     "BOT_NAME": "Secretario",
     "OWNER_NAME": "Pablo",
@@ -38,6 +32,7 @@
     // Presupuesto diario de neuronas de Workers AI (el plan gratuito da 10.000). Se reserva margen.
     "DAILY_NEURON_BUDGET": "9000",
     // Cadenas de modelos: proveedor:modelo, en orden de preferencia. Se salta al siguiente si falla o se agota el presupuesto.
+    // "openai:<modelo>" se usa solo si hay OPENAI_API_KEY (secreto o baúl).
     "MODEL_CHAIN_SMART": "cf:@cf/openai/gpt-oss-120b,gemini:gemini-3.6-flash,groq:openai/gpt-oss-120b,cf:@cf/meta/llama-4-scout-17b-16e-instruct,openrouter:google/gemma-4-26b-a4b-it:free,openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
     "MODEL_CHAIN_FAST": "cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast,gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-20b,cf:@cf/qwen/qwen3-30b-a3b-fp8,openrouter:google/gemma-4-26b-a4b-it:free",
     "MODEL_VISION": "@cf/meta/llama-3.2-11b-vision-instruct",
@@ -45,6 +40,58 @@
     "MODEL_EMBED": "@cf/baai/bge-m3",
     "HEARTBEAT_ENABLED": "true",
     "QUIET_HOURS": "23-07",
-    "MAX_AGENT_STEPS": "10"
+    "MAX_AGENT_STEPS": "10",
+    // Panel web: quién puede entrar además del propietario (correos separados por comas).
+    "ADMIN_EMAILS": "",
+    "BRAND_NAME": "Secretario",
+    "BRAND_TAGLINE": "Tu agente personal"
+  },
+
+  // ---------- Clientes: un despliegue por cliente con sus propios datos, secretos y dominio ----------
+  // Despliegue: npm run deploy -- --env ara · Secretos: npx wrangler secret put NOMBRE --env ara
+  // Las variables y los bindings no se heredan entre entornos: hay que repetirlos.
+  "env": {
+    "ara": {
+      "name": "secretario-ara",
+      "routes": [{ "pattern": "ara.nuviamedia.com", "custom_domain": true }],
+      "ai": { "binding": "AI" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "secretario-ara",
+          "database_id": "a0dad3b9-25c0-4def-9031-2255c1cf634e",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vectorize": [{ "binding": "VECTORS", "index_name": "secretario-ara-memoria" }],
+      "durable_objects": {
+        "bindings": [{ "name": "SESSION", "class_name": "SecretarioSession" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SecretarioSession"] }],
+      "vars": {
+        "BOT_NAME": "Secretario de Ara",
+        "OWNER_NAME": "Ara",
+        "OWNER_EMAIL": "aradelg@gmail.com",
+        "PUBLIC_URL": "https://ara.nuviamedia.com",
+        "TIMEZONE": "Europe/Madrid",
+        "LANGUAGE": "es",
+        "DAILY_NEURON_BUDGET": "9000",
+        "MODEL_CHAIN_SMART": "openai:gpt-5-mini,cf:@cf/openai/gpt-oss-120b,gemini:gemini-3.6-flash,groq:openai/gpt-oss-120b,cf:@cf/meta/llama-4-scout-17b-16e-instruct,openrouter:google/gemma-4-26b-a4b-it:free,openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+        "MODEL_CHAIN_FAST": "cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast,gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-20b,cf:@cf/qwen/qwen3-30b-a3b-fp8,openrouter:google/gemma-4-26b-a4b-it:free",
+        "MODEL_VISION": "@cf/meta/llama-3.2-11b-vision-instruct",
+        "MODEL_STT": "@cf/openai/whisper-large-v3-turbo",
+        "MODEL_EMBED": "@cf/baai/bge-m3",
+        "HEARTBEAT_ENABLED": "true",
+        "QUIET_HOURS": "22-08",
+        "MAX_AGENT_STEPS": "10",
+        // Reglas de trabajo de la clienta (ver PDF "Análisis de consumo Work").
+        "DEFAULT_TASK_LIST": "Araceli",
+        "DAILY_BRIEF": "19:30",
+        "ALLOWED_CALENDARS": "",
+        "ADMIN_EMAILS": "info@apdsport.com",
+        "BRAND_NAME": "Nuvia",
+        "BRAND_TAGLINE": "Tu secretaria digital"
+      }
+    }
   }
 }

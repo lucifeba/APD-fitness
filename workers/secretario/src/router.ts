@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatResult, Env, ToolCall, ToolDef } from './env';
 import { neuronsToday, recordUsage } from './db';
+import { vaultGet } from './tools/autonomyTools';
 
 let neuronCache: { day: string; value: number; at: number } | null = null;
 
@@ -19,8 +20,21 @@ import { uid } from './util';
 export type Tier = 'smart' | 'fast';
 
 interface Target {
-  provider: 'cf' | 'gemini' | 'groq' | 'openrouter';
+  provider: 'cf' | 'gemini' | 'groq' | 'openrouter' | 'openai';
   model: string;
+}
+
+/** Clave de OpenAI: secreto del Worker o, si no, la que el usuario conectó desde el panel (baúl cifrado). Cache de 2 min. */
+let openaiKeyCache: { value: string; at: number } | null = null;
+export async function resolveOpenAIKey(env: Env, force = false): Promise<string> {
+  if (env.OPENAI_API_KEY) return env.OPENAI_API_KEY;
+  if (!force && openaiKeyCache && Date.now() - openaiKeyCache.at < 120_000) return openaiKeyCache.value;
+  const value = (await vaultGet(env, 'OPENAI_API_KEY').catch(() => null)) || '';
+  openaiKeyCache = { value, at: Date.now() };
+  return value;
+}
+export function forgetOpenAIKeyCache(): void {
+  openaiKeyCache = null;
 }
 
 /** Neuronas por millón de tokens (entrada, salida). Para modelos con precio en dólares: $ por M / 0.011 * 1000. */
@@ -58,18 +72,21 @@ function available(env: Env, t: Target): boolean {
   if (t.provider === 'gemini') return Boolean(env.GEMINI_API_KEY);
   if (t.provider === 'groq') return Boolean(env.GROQ_API_KEY);
   if (t.provider === 'openrouter') return Boolean(env.OPENROUTER_API_KEY);
+  if (t.provider === 'openai') return Boolean(env.OPENAI_API_KEY || openaiKeyCache?.value);
   return false;
 }
 
 function baseUrl(p: Target['provider']): string {
   if (p === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta/openai';
   if (p === 'groq') return 'https://api.groq.com/openai/v1';
+  if (p === 'openai') return 'https://api.openai.com/v1';
   return 'https://openrouter.ai/api/v1';
 }
 
 function apiKey(env: Env, p: Target['provider']): string {
   if (p === 'gemini') return env.GEMINI_API_KEY || '';
   if (p === 'groq') return env.GROQ_API_KEY || '';
+  if (p === 'openai') return env.OPENAI_API_KEY || openaiKeyCache?.value || '';
   return env.OPENROUTER_API_KEY || '';
 }
 
@@ -220,7 +237,13 @@ async function callOpenAICompatible(
   tools: ToolDef[],
   maxTokens: number,
 ): Promise<ChatResult> {
-  const body: any = { model: t.model, messages: toOpenAI(messages), max_tokens: maxTokens, temperature: 0.3 };
+  const body: any = { model: t.model, messages: toOpenAI(messages) };
+  // Los modelos de razonamiento de OpenAI (gpt-5, o-series) rechazan max_tokens y temperature.
+  if (t.provider === 'openai') body.max_completion_tokens = maxTokens;
+  else {
+    body.max_tokens = maxTokens;
+    body.temperature = 0.3;
+  }
   if (tools.length) {
     body.tools = tools.map((tl) => ({ type: 'function', function: tl }));
     body.tool_choice = 'auto';
@@ -260,6 +283,7 @@ const roughTokens = (messages: ChatMessage[]) => Math.ceil(messages.reduce((n, m
  * está cerca del presupuesto diario de neuronas. Devuelve siempre un resultado o lanza el último error.
  */
 export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools: ToolDef[] = [], maxTokens = 1500, only?: string): Promise<ChatResult> {
+  await resolveOpenAIKey(env);
   const chain = parseChain(
     tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST,
     tier === 'smart' ? 'cf:@cf/openai/gpt-oss-120b,cf:@cf/meta/llama-3.3-70b-instruct-fp8-fast' : 'cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast',
@@ -297,7 +321,8 @@ export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools:
 }
 
 /** Diagnóstico: lista los modelos que ofrece un proveedor externo. */
-export async function listModels(env: Env, provider: 'gemini' | 'groq' | 'openrouter'): Promise<string[]> {
+export async function listModels(env: Env, provider: 'gemini' | 'groq' | 'openrouter' | 'openai'): Promise<string[]> {
+  await resolveOpenAIKey(env);
   const r = await fetch(`${baseUrl(provider)}/models`, { headers: { authorization: `Bearer ${apiKey(env, provider)}` } });
   if (!r.ok) throw new Error(`${provider} ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json<any>();
@@ -306,6 +331,7 @@ export async function listModels(env: Env, provider: 'gemini' | 'groq' | 'openro
 
 /** Diagnóstico: prueba cada cerebro de la cadena con una petición mínima que exige una llamada a herramienta. */
 export async function probeProviders(env: Env, tier: Tier = 'smart', chainSpec?: string): Promise<{ provider: string; model: string; ok: boolean; ms: number; toolCalls?: string[]; content?: string; error?: string }[]> {
+  await resolveOpenAIKey(env);
   const chain = parseChain(chainSpec || (tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST), '');
   const tools: ToolDef[] = [
     { name: 'get_time', description: 'Devuelve la hora actual.', parameters: { type: 'object', properties: {}, required: [] } },
