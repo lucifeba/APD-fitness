@@ -1,0 +1,1 @@
+{ "regions": ["fra1"], "functions": { "api/responses.js": { "maxDuration": 60 } } }

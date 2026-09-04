@@ -16,6 +16,30 @@ const BACKEND = 'https://chatgpt.com/backend-api/codex';
 export const VERIFICATION_URL = `${ISSUER}/codex/device`;
 const VAULT_KEY = 'CHATGPT_TOKENS';
 const DEVICE_KEY = 'chatgpt_device';
+const COOKIE_KEY = 'chatgpt_cf_cookies';
+/** Mismo formato de User-Agent que Codex CLI: la protección de chatgpt.com rechaza clientes sin identificar. */
+const USER_AGENT = 'codex_cli_rs/0.153.2 (Mac OS 26.0.0; arm64) Terminal';
+
+/** Cookies de Cloudflare (__cf_bm, cf_clearance…) que chatgpt.com espera ver de vuelta en la siguiente petición. */
+let cfCookies: { at: number; value: string } | null = null;
+async function loadCookies(env: Env): Promise<string> {
+  if (cfCookies && Date.now() - cfCookies.at < 20 * 60_000) return cfCookies.value;
+  const v = (await getSetting(env, COOKIE_KEY)) || '';
+  cfCookies = { at: Date.now(), value: v };
+  return v;
+}
+async function rememberCookies(env: Env, r: Response): Promise<void> {
+  const set = (r.headers as any).getSetCookie ? ((r.headers as any).getSetCookie() as string[]) : [r.headers.get('set-cookie') || ''];
+  const pairs = set
+    .map((c) => c.split(';')[0].trim())
+    .filter((c) => /^(__cf_bm|cf_clearance|_cfuvid)=/.test(c));
+  if (!pairs.length) return;
+  const current = new Map((await loadCookies(env)).split('; ').filter(Boolean).map((c) => [c.split('=')[0], c]));
+  for (const p of pairs) current.set(p.split('=')[0], p);
+  const value = [...current.values()].join('; ');
+  cfCookies = { at: Date.now(), value };
+  await setSetting(env, COOKIE_KEY, value);
+}
 
 interface Tokens {
   access_token: string;
@@ -225,19 +249,35 @@ export async function callChatGPT(env: Env, model: string, messages: ChatMessage
     max_output_tokens: maxTokens,
   };
   if (tools.length) body.tools = tools.map((tl) => ({ type: 'function', name: tl.name, description: tl.description, parameters: tl.parameters, strict: false }));
-  const r = await fetch(`${BACKEND}/responses`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${t.access_token}`,
-      'ChatGPT-Account-ID': t.account_id,
-      'content-type': 'application/json',
-      accept: 'text/event-stream',
-      'OpenAI-Beta': 'responses=experimental',
-      originator: 'codex_cli_rs',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`chatgpt ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${t.access_token}`,
+    'ChatGPT-Account-ID': t.account_id,
+    'content-type': 'application/json',
+    accept: 'text/event-stream',
+    'OpenAI-Beta': 'responses=experimental',
+    originator: 'codex_cli_rs',
+    'User-Agent': USER_AGENT,
+    'session-id': uid(''),
+  };
+  const cookies = await loadCookies(env);
+  if (cookies) headers.cookie = cookies;
+  // chatgpt.com bloquea las IPs de salida de Cloudflare Workers: si hay relé configurado, pasamos por él.
+  const target = (env.CHATGPT_RELAY_URL || '').trim() || `${BACKEND}/responses`;
+  const r = await fetch(target, { method: 'POST', headers, body: JSON.stringify(body) });
+  const upstreamCookies = r.headers.get('x-upstream-set-cookie');
+  if (upstreamCookies) {
+    try {
+      const fake = new Response(null, { headers: (JSON.parse(upstreamCookies) as string[]).map((c) => ['set-cookie', c] as [string, string]) });
+      await rememberCookies(env, fake);
+    } catch {
+      /* cookies del relé ilegibles */
+    }
+  } else await rememberCookies(env, r).catch(() => undefined);
+  if (!r.ok) {
+    const text = await r.text();
+    const plain = text.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    throw new Error(`chatgpt ${r.status}: ${plain.slice(0, 300)}`);
+  }
   const resp = await readSse(r);
   let content = '';
   const toolCalls: ToolCall[] = [];

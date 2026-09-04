@@ -51,6 +51,8 @@ export interface Env {
   BRAND_TAGLINE?: string;
   /** Esfuerzo de razonamiento para el proveedor chatgpt (low | medium | high). */
   CHATGPT_REASONING?: string;
+  /** URL de un relé (p. ej. función en Vercel) para llegar a chatgpt.com desde Workers. */
+  CHATGPT_RELAY_URL?: string;
 }
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
