@@ -5,7 +5,9 @@ import { buildAgenda, renderAgenda } from './agenda';
 import { runAgent } from './agent';
 import { forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
 import { reindexMemories } from './memory';
-import { chat, listModels, probeProviders } from './router';
+import { chat, forgetChatGPTCache, listModels, probeProviders } from './router';
+import { chatgptDisconnect, pollDeviceLogin, startDeviceLogin } from './chatgpt';
+import { audit } from './db';
 import { resolveDay, uid } from './util';
 import { appShell, connectOpenAI, disconnectOpenAI, landing, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
 import { send, tg } from './telegram';
@@ -118,6 +120,26 @@ export default {
           return json({ ok: true });
         }
         if (req.method === 'POST' && url.pathname === '/api/probe') return json({ ok: true, results: await probeJson(env) });
+        if (req.method === 'POST' && url.pathname === '/api/chatgpt/start') {
+          try {
+            return json({ ok: true, ...(await startDeviceLogin(env)) });
+          } catch (e: any) {
+            return json({ ok: false, error: String(e?.message ?? e) });
+          }
+        }
+        if (req.method === 'POST' && url.pathname === '/api/chatgpt/poll') {
+          const r = await pollDeviceLogin(env);
+          if (r.status === 'connected') {
+            forgetChatGPTCache();
+            await audit(env, null, 'chatgpt_connect', { email: r.email });
+          }
+          return json({ ok: true, ...r });
+        }
+        if (req.method === 'POST' && url.pathname === '/api/chatgpt/disconnect') {
+          await chatgptDisconnect(env);
+          forgetChatGPTCache();
+          return json({ ok: true });
+        }
         return json({ ok: false, error: 'not found' }, 404);
       }
       if (url.pathname === '/health') {

@@ -49,6 +49,8 @@ export interface Env {
   ADMIN_EMAILS?: string;
   BRAND_NAME?: string;
   BRAND_TAGLINE?: string;
+  /** Esfuerzo de razonamiento para el proveedor chatgpt (low | medium | high). */
+  CHATGPT_REASONING?: string;
 }
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';

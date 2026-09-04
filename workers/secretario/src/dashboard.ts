@@ -3,6 +3,7 @@ import type { Env } from './env';
 import { googleConfigured } from './google';
 import { countDocuments, listDocuments } from './knowledge';
 import { countMemories } from './memory';
+import { chatgptConnected, VERIFICATION_URL } from './chatgpt';
 import { forgetOpenAIKeyCache, probeProviders, resolveOpenAIKey } from './router';
 import { vaultDelete, vaultList, vaultSet } from './tools/autonomyTools';
 import { localTime, today } from './util';
@@ -125,19 +126,21 @@ export async function statusJson(env: Env): Promise<Record<string, unknown>> {
     resolveOpenAIKey(env, true),
     env.DB.prepare('SELECT created_at FROM audit_log ORDER BY id DESC LIMIT 1').first<{ created_at: string }>(),
   ]);
+  const gpt = await chatgptConnected(env, true);
   const neurons = usage.filter((u: any) => u.provider === 'cf').reduce((n: number, u: any) => n + Number(u.neurons || 0), 0);
   const chain = (env.MODEL_CHAIN_SMART || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
   const keyFor = (p: string) =>
-    p === 'cf' ? true : p === 'gemini' ? Boolean(env.GEMINI_API_KEY) : p === 'groq' ? Boolean(env.GROQ_API_KEY) : p === 'openrouter' ? Boolean(env.OPENROUTER_API_KEY) : p === 'openai' ? Boolean(openaiKey) : false;
+    p === 'cf' ? true : p === 'gemini' ? Boolean(env.GEMINI_API_KEY) : p === 'groq' ? Boolean(env.GROQ_API_KEY) : p === 'openrouter' ? Boolean(env.OPENROUTER_API_KEY) : p === 'openai' ? Boolean(openaiKey) : p === 'chatgpt' ? Boolean(gpt) : false;
   return {
     brand: { name: env.BRAND_NAME || 'Secretario', tagline: env.BRAND_TAGLINE || '' },
     owner: { name: env.OWNER_NAME, email: env.OWNER_EMAIL, tz: env.TIMEZONE || 'Europe/Madrid', localTime: localTime(env.TIMEZONE || 'Europe/Madrid') },
     bot: { name: env.BOT_NAME, paired: Boolean(env.OWNER_CHAT_ID || ownerChat), publicUrl: env.PUBLIC_URL },
     google: { connected: googleOk, configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) },
     openai: { connected: Boolean(openaiKey), fromSecret: Boolean(env.OPENAI_API_KEY) },
+    chatgpt: { connected: Boolean(gpt), email: gpt?.email || '', verificationUrl: VERIFICATION_URL },
     brains: chain.map((c) => ({ id: c, provider: c.split(':')[0], model: c.slice(c.indexOf(':') + 1), configured: keyFor(c.split(':')[0]) })),
     usage: { rows: usage, neurons: Math.round(neurons), budget: Number(env.DAILY_NEURON_BUDGET || 9000) },
     knowledge: { count: nDocs, recent: docs.map((d) => ({ id: d.id, title: d.title, chunks: d.chunks, date: d.created_at.slice(0, 10), summary: (d.summary || '').slice(0, 220) })) },
@@ -258,7 +261,10 @@ function render(s){
  +'<div class="grid">'
  +card('Telegram',s.bot.paired?'<span class="dot ok"></span>Emparejado':'<span class="dot warn"></span>Sin emparejar','Envía el código de emparejamiento al bot para activarlo.')
  +card('Google',s.google.connected?'<span class="dot ok"></span>'+esc(s.owner.email):(s.google.configured?'<span class="dot warn"></span>Sin autorizar':'<span class="dot bad"></span>Sin configurar'),'Gmail, Calendar, Drive, Docs y Tasks. Se autoriza con /google en Telegram.')
- +'<section class="card"><h3>OpenAI</h3><div class="status">'+(s.openai.connected?'<span class="dot ok"></span>Conectado':'<span class="dot"></span>No conectado')+'</div>'
+ +'<section class="card"><h3>ChatGPT</h3><div class="status">'+(s.chatgpt.connected?'<span class="dot ok"></span>'+esc(s.chatgpt.email||'Conectado'):'<span class="dot"></span>No conectado')+'</div>'
+ +(s.chatgpt.connected?'<p class="d">Tu suscripción de ChatGPT es el cerebro principal del agente. Los gratuitos quedan de respaldo.</p><button class="btn small" onclick="disconnectChatGPT()">Desconectar</button>'
+   :'<p class="d">Usa tu cuenta de ChatGPT (Plus, Pro o Business) sin clave de API: te damos un código, lo tecleas en chatgpt.com y listo.</p><div id="gptbox"><button class="btn primary small" onclick="startChatGPT()">Entrar con ChatGPT</button></div>')+'</section>'
+ +'<section class="card"><h3>OpenAI (clave de API)</h3><div class="status">'+(s.openai.connected?'<span class="dot ok"></span>Conectado':'<span class="dot"></span>No conectado')+'</div>'
  +(s.openai.fromSecret?'<p class="d">Configurado por el administrador.</p>':(s.openai.connected?'<p class="d">GPT es el cerebro principal; los gratuitos quedan de respaldo.</p><button class="btn small" onclick="disconnectOpenAI()">Desconectar</button>':'<p class="d">Pega tu clave de API de OpenAI (empieza por sk-). Se guarda cifrada y nadie más la ve.</p><form class="inline" onsubmit="return connectOpenAI(event)"><input type="password" id="oak" placeholder="sk-…" autocomplete="off"><button class="btn primary small">Conectar</button></form>'))+'</section>'
  +'<section class="card"><h3>Uso de IA hoy</h3><div class="kpi">'+s.usage.neurons.toLocaleString('es-ES')+'</div><div class="d">de '+s.usage.budget.toLocaleString('es-ES')+' neuronas gratuitas de Cloudflare</div><div class="bar"><i style="width:'+pct+'%"></i></div></section>'
  +'</div><div class="grid">'
@@ -277,6 +283,11 @@ function render(s){
 }
 function card(t,st,d){return '<section class="card"><h3>'+t+'</h3><div class="status">'+st+'</div><p class="d">'+d+'</p></section>'}
 async function connectOpenAI(e){e.preventDefault();const key=$('#oak').value;const r=await fetch('/api/openai',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key})});const j=await r.json();toast(j.ok?'OpenAI conectado ('+j.models+' modelos disponibles)':j.error||'No se pudo conectar');if(j.ok)load();return false}
+let gptTimer=null;
+async function startChatGPT(){const box=$('#gptbox');box.innerHTML='<p class="d">Pidiendo código…</p>';const r=await fetch('/api/chatgpt/start',{method:'POST'});const j=await r.json();if(!j.ok){box.innerHTML='<p class="bad small">'+esc(j.error||'No se pudo iniciar')+'</p><button class="btn small" onclick="startChatGPT()">Reintentar</button>';return}
+ box.innerHTML='<p class="d">1. Abre <a class="ok" href="'+esc(j.verification_url)+'" target="_blank" rel="noopener">'+esc(j.verification_url)+'</a> e inicia sesión en ChatGPT.<br>2. Teclea este código:</p><div class="kpi" style="letter-spacing:.12em">'+esc(j.user_code)+'</div><p class="d" id="gptstate">Esperando a que autorices… (el código caduca en 15 min)</p>';
+ clearInterval(gptTimer);gptTimer=setInterval(async()=>{const p=await fetch('/api/chatgpt/poll',{method:'POST'});const s=await p.json();const st=$('#gptstate');if(s.status==='connected'){clearInterval(gptTimer);toast('ChatGPT conectado'+(s.email?' como '+s.email:''));load()}else if(s.status==='expired'||s.status==='none'){clearInterval(gptTimer);if(st)st.innerHTML='<span class="warn">El código ha caducado.</span> <button class="btn small" onclick="startChatGPT()">Pedir otro</button>'}else if(s.error&&st){st.textContent='Esperando… ('+s.error+')'}},Math.max(3,(j.interval||5))*1000)}
+async function disconnectChatGPT(){if(!confirm('¿Desconectar ChatGPT? El agente seguirá con los cerebros gratuitos.'))return;await fetch('/api/chatgpt/disconnect',{method:'POST'});toast('ChatGPT desconectado');load()}
 async function disconnectOpenAI(){if(!confirm('¿Desconectar OpenAI? El agente seguirá con los cerebros gratuitos.'))return;await fetch('/api/openai',{method:'DELETE'});toast('OpenAI desconectado');load()}
 async function probe(){$('#probe').textContent='probando…';const r=await fetch('/api/probe',{method:'POST'});const j=await r.json();$('#probe').innerHTML=(j.results||[]).map(x=>'<span class="'+(x.ok?'ok':'bad')+'">'+esc(x.model.split('/').pop())+' '+(x.ok?x.ms+' ms':'falla')+'</span>').join(' · ')}
 setInterval(()=>{const c=$('#clock');if(c)c.textContent=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})},1000);

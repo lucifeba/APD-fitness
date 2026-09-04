@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatResult, Env, ToolCall, ToolDef } from './env';
 import { neuronsToday, recordUsage } from './db';
+import { callChatGPT, chatgptConnected } from './chatgpt';
 import { vaultGet } from './tools/autonomyTools';
 
 let neuronCache: { day: string; value: number; at: number } | null = null;
@@ -20,8 +21,20 @@ import { uid } from './util';
 export type Tier = 'smart' | 'fast';
 
 interface Target {
-  provider: 'cf' | 'gemini' | 'groq' | 'openrouter' | 'openai';
+  provider: 'cf' | 'gemini' | 'groq' | 'openrouter' | 'openai' | 'chatgpt';
   model: string;
+}
+
+/** Sesión de ChatGPT (OAuth) conectada desde el panel; cache de 2 min. */
+let chatgptOk: { at: number; value: boolean } | null = null;
+async function resolveChatGPT(env: Env): Promise<boolean> {
+  if (chatgptOk && Date.now() - chatgptOk.at < 120_000) return chatgptOk.value;
+  const value = Boolean(await chatgptConnected(env).catch(() => null));
+  chatgptOk = { at: Date.now(), value };
+  return value;
+}
+export function forgetChatGPTCache(): void {
+  chatgptOk = null;
 }
 
 /** Clave de OpenAI: secreto del Worker o, si no, la que el usuario conectó desde el panel (baúl cifrado). Cache de 2 min. */
@@ -73,6 +86,7 @@ function available(env: Env, t: Target): boolean {
   if (t.provider === 'groq') return Boolean(env.GROQ_API_KEY);
   if (t.provider === 'openrouter') return Boolean(env.OPENROUTER_API_KEY);
   if (t.provider === 'openai') return Boolean(env.OPENAI_API_KEY || openaiKeyCache?.value);
+  if (t.provider === 'chatgpt') return Boolean(chatgptOk?.value);
   return false;
 }
 
@@ -283,7 +297,7 @@ const roughTokens = (messages: ChatMessage[]) => Math.ceil(messages.reduce((n, m
  * está cerca del presupuesto diario de neuronas. Devuelve siempre un resultado o lanza el último error.
  */
 export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools: ToolDef[] = [], maxTokens = 1500, only?: string): Promise<ChatResult> {
-  await resolveOpenAIKey(env);
+  await Promise.all([resolveOpenAIKey(env), resolveChatGPT(env)]);
   const chain = parseChain(
     tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST,
     tier === 'smart' ? 'cf:@cf/openai/gpt-oss-120b,cf:@cf/meta/llama-3.3-70b-instruct-fp8-fast' : 'cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast',
@@ -302,7 +316,12 @@ export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools:
   ordered.sort((a, b) => Number(cfOverBudget(a)) - Number(cfOverBudget(b)));
   for (const t of ordered) {
     try {
-      const res = t.provider === 'cf' ? await callWorkersAI(env, t.model, messages, tools, maxTokens) : await callOpenAICompatible(env, t, messages, tools, maxTokens);
+      const res =
+        t.provider === 'cf'
+          ? await callWorkersAI(env, t.model, messages, tools, maxTokens)
+          : t.provider === 'chatgpt'
+            ? await callChatGPT(env, t.model, messages, tools, maxTokens)
+            : await callOpenAICompatible(env, t, messages, tools, maxTokens);
       const inTok = res.usage.input || est;
       const outTok = res.usage.output || Math.ceil((res.content.length + JSON.stringify(res.toolCalls).length) / 3.5);
       const neurons = t.provider === 'cf' ? estimateNeurons(t.model, inTok, outTok) : 0;
@@ -331,7 +350,7 @@ export async function listModels(env: Env, provider: 'gemini' | 'groq' | 'openro
 
 /** Diagnóstico: prueba cada cerebro de la cadena con una petición mínima que exige una llamada a herramienta. */
 export async function probeProviders(env: Env, tier: Tier = 'smart', chainSpec?: string): Promise<{ provider: string; model: string; ok: boolean; ms: number; toolCalls?: string[]; content?: string; error?: string }[]> {
-  await resolveOpenAIKey(env);
+  await Promise.all([resolveOpenAIKey(env), resolveChatGPT(env)]);
   const chain = parseChain(chainSpec || (tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST), '');
   const tools: ToolDef[] = [
     { name: 'get_time', description: 'Devuelve la hora actual.', parameters: { type: 'object', properties: {}, required: [] } },
@@ -348,7 +367,8 @@ export async function probeProviders(env: Env, tier: Tier = 'smart', chainSpec?:
       continue;
     }
     try {
-      const res = t.provider === 'cf' ? await callWorkersAI(env, t.model, messages, tools, 200) : await callOpenAICompatible(env, t, messages, tools, 200);
+      const res =
+        t.provider === 'cf' ? await callWorkersAI(env, t.model, messages, tools, 200) : t.provider === 'chatgpt' ? await callChatGPT(env, t.model, messages, tools, 200) : await callOpenAICompatible(env, t, messages, tools, 200);
       out.push({ provider: t.provider, model: t.model, ok: true, ms: Date.now() - t0, toolCalls: res.toolCalls.map((c) => c.name), content: res.content.slice(0, 200) });
     } catch (e: any) {
       out.push({ provider: t.provider, model: t.model, ok: false, ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 400) });
