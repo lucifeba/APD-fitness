@@ -10,6 +10,8 @@ export interface ToolCtx {
   runSubagent: (goal: string, tier: 'smart' | 'fast') => Promise<string>;
   onTasksChanged: () => Promise<void>;
   sendFile: (name: string, content: string, caption?: string) => Promise<void>;
+  /** Envía al usuario un texto (Markdown) tal cual, sin pasar por el modelo. */
+  sendText: (text: string) => Promise<void>;
 }
 
 export interface NeedsConfirmation {

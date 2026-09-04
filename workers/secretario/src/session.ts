@@ -5,10 +5,13 @@ import { googleConfigured, oauthStartUrl } from './google';
 import { heartbeat } from './heartbeat';
 import { describeImage, transcribe } from './media';
 import { countMemories, listMemories, remember } from './memory';
-import { getTool } from './tools';
+import { countDocuments, extractText, ingestDocument, listDocuments } from './knowledge';
+import { ALL_TOOLS, resolveTool } from './tools';
+import { normalizeSecretName, vaultList, vaultSet } from './tools/autonomyTools';
 import type { ToolCtx } from './tools/types';
-import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, typing } from './telegram';
-import { clip, inQuietHours, localTime, nextCron, now, uid } from './util';
+import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, typing } from './telegram';
+import { buildAgenda, renderAgenda } from './agenda';
+import { clip, inQuietHours, localTime, nextCron, now, resolveDay, uid } from './util';
 
 interface State {
   history: ChatMessage[];
@@ -113,6 +116,13 @@ export class SecretarioSession implements DurableObject {
         const { bytes } = await downloadFile(this.env, pick.file_id);
         const d = await describeImage(this.env, bytes, msg.caption ? `El usuario dice: "${msg.caption}". Describe la imagen con detalle y transcribe cualquier texto.` : '');
         parts.push(`[Imagen enviada. Descripción automática]: ${d}`);
+        // Toda imagen queda en la base de conocimiento (descripción y texto transcrito).
+        try {
+          const doc = await ingestDocument(this.env, { title: `Foto ${now().slice(0, 16).replace('T', ' ')}${msg.caption ? ` · ${clip(msg.caption, 60)}` : ''}`, text: d, source: 'photo', mime: 'image/jpeg' });
+          parts.push(`[Guardada en la base de conocimiento como ${doc.id}]`);
+        } catch (e: any) {
+          console.warn('ingesta foto', e?.message);
+        }
       } catch (e: any) {
         parts.push(`[No pude analizar la imagen: ${e.message}]`);
       }
@@ -120,15 +130,21 @@ export class SecretarioSession implements DurableObject {
     if (msg.document) {
       kind = 'document';
       const d = msg.document;
-      const textLike = /^text\/|json|csv|xml|markdown/i.test(d.mime_type ?? '') || /\.(txt|md|csv|json|xml|log|ts|js|py|html)$/i.test(d.file_name ?? '');
-      if (textLike && (d.file_size ?? 0) < 900_000) {
+      const name = String(d.file_name || 'archivo');
+      const size = Number(d.file_size ?? 0);
+      if (size > 20 * 1024 * 1024) parts.push(`[Archivo adjunto: ${name} (${Math.round(size / 1024 / 1024)} MB). Telegram solo me deja descargar archivos de hasta 20 MB; compártelo por Drive y lo leo desde allí.]`);
+      else {
         try {
           const { bytes } = await downloadFile(this.env, d.file_id);
-          parts.push(`[Archivo ${d.file_name}]:\n${clip(new TextDecoder().decode(bytes), 20000)}`);
+          const { text, how } = await extractText(this.env, name, d.mime_type, bytes);
+          const doc = await ingestDocument(this.env, { title: name.replace(/\.[a-z0-9]+$/i, ''), text, source: 'telegram', mime: d.mime_type });
+          parts.push(
+            `[Archivo ${name} (${how}, ${text.length} caracteres) guardado en la base de conocimiento como ${doc.id} en ${doc.chunks} fragmentos; ${doc.facts} hechos anotados en memoria. Resumen: ${doc.summary}]\n[Inicio del contenido]:\n${clip(text, 12000)}`,
+          );
         } catch (e: any) {
-          parts.push(`[No pude leer el archivo ${d.file_name}: ${e.message}]`);
+          parts.push(`[No pude procesar el archivo ${name}: ${e.message}]`);
         }
-      } else parts.push(`[Archivo adjunto: ${d.file_name} (${d.mime_type}, ${Math.round((d.file_size ?? 0) / 1024)} KB). No puedo leer este formato directamente.]`);
+      }
     }
     if (msg.location) parts.push(`[Ubicación: ${msg.location.latitude}, ${msg.location.longitude}]`);
     if (msg.contact) parts.push(`[Contacto: ${msg.contact.first_name ?? ''} ${msg.contact.last_name ?? ''} ${msg.contact.phone_number ?? ''}]`);
@@ -156,6 +172,7 @@ export class SecretarioSession implements DurableObject {
         summary: state.summary,
         onTasksChanged: () => this.rescheduleAlarm(),
         sendFile: (name, content, caption) => sendDocument(this.env, chatId, name, content, caption),
+        sendText: async (text) => void (await send(this.env, chatId, text)),
       });
       clearInterval(typingLoop);
       // Guardamos solo lo que aporta contexto: el texto final del asistente (las llamadas a herramientas se resumen).
@@ -220,7 +237,7 @@ export class SecretarioSession implements DurableObject {
       return;
     }
     await answerCallback(this.env, cb.id, 'Confirmado, en marcha…');
-    const spec = getTool(action.tool);
+    const spec = await resolveTool(this.env, action.tool);
     if (!spec) return void (await send(this.env, chatId, `No encuentro la herramienta ${action.tool}.`, { plain: true }));
     const ctx: ToolCtx = {
       env: this.env,
@@ -230,6 +247,7 @@ export class SecretarioSession implements DurableObject {
       tz: this.tz,
       onTasksChanged: () => this.rescheduleAlarm(),
       sendFile: (name, content, caption) => sendDocument(this.env, chatId, name, content, caption),
+      sendText: async (text) => void (await send(this.env, chatId, text)),
       runSubagent: async () => 'no disponible',
     };
     try {
@@ -259,13 +277,20 @@ export class SecretarioSession implements DurableObject {
           `Soy ${this.env.BOT_NAME || 'Secretario'}. Háblame por texto o nota de voz, mándame fotos o archivos, o responde a mis mensajes para seguir el hilo.\n\n` +
             `Puedo: buscar en internet, leer y redactar correos, gestionar agenda y Drive, programar recordatorios y tareas, recordar lo que me cuentas y aprender procedimientos.\n` +
             `Nunca envío, modifico ni borro nada sin que lo confirmes con un botón.\n\n` +
-            `Comandos:\n/estado · uso de hoy y salud\n/memoria [búsqueda] · qué recuerdo\n/aprende <texto> · guardar un hecho\n/olvida <id> · archivar un recuerdo (con confirmación)\n/skills · habilidades aprendidas\n/tareas · programadas\n/feedback <texto> · corrígeme o refuérzame\n/modo silencio|normal · avisos proactivos\n/nuevo · empezar conversación limpia\n/google · conectar Gmail, Calendar y Drive`,
+            `Mándame cualquier archivo (PDF, Word, Excel, imágenes, texto...) o enlace y lo guardo en mi base de conocimiento para usarlo después.\n\n` +
+            `Comandos:\n/agenda [hoy|mañana|semana|lunes|12/09] · eventos de todos tus calendarios y tareas\n/docs · documentos que conozco\n/herramientas · herramientas que he creado y credenciales guardadas\n/secreto NOMBRE valor · guardar una credencial cifrada para APIs\n/instrucciones · reglas que me he dado a mí mismo\n/estado · uso de hoy y salud\n/memoria [búsqueda] · qué recuerdo\n/aprende <texto> · guardar un hecho\n/olvida <id> · archivar un recuerdo (con confirmación)\n/skills · habilidades aprendidas\n/tareas · programadas\n/feedback <texto> · corrígeme o refuérzame\n/modo silencio|normal · avisos proactivos\n/nuevo · empezar conversación limpia\n/google · conectar Gmail, Calendar y Drive`,
         );
         return true;
       case '/estado': {
-        const [usage, n, gOk] = await Promise.all([usageSummary(this.env), countMemories(this.env), googleConfigured(this.env)]);
+        const [usage, n, gOk, nDocs, nTools] = await Promise.all([
+          usageSummary(this.env),
+          countMemories(this.env),
+          googleConfigured(this.env),
+          countDocuments(this.env),
+          this.env.DB.prepare("SELECT COUNT(*) AS n FROM dyn_tools WHERE status='active'").first<{ n: number }>().then((r) => Number(r?.n ?? 0)),
+        ]);
         await reply(
-          `Hora local: ${localTime(this.tz)}\nGoogle: ${gOk ? 'conectado' : 'NO conectado (/google)'}\nModo: ${state.mode}\nRecuerdos activos: ${n}\nMensajes en contexto: ${state.history.length}${state.summary ? ' (+ resumen)' : ''}\nPendientes de confirmar: ${Object.keys(state.pending).length}\n\nUso de IA hoy:\n${usage}\nPresupuesto Workers AI: ${this.env.DAILY_NEURON_BUDGET || 9000} neuronas/día`,
+          `Hora local: ${localTime(this.tz)}\nGoogle: ${gOk ? 'conectado' : 'NO conectado (/google)'}\nModo: ${state.mode}\nRecuerdos activos: ${n}\nDocumentos en conocimiento: ${nDocs}\nHerramientas creadas por mí: ${nTools}\nMensajes en contexto: ${state.history.length}${state.summary ? ' (+ resumen)' : ''}\nPendientes de confirmar: ${Object.keys(state.pending).length}\n\nUso de IA hoy:\n${usage}\nPresupuesto Workers AI: ${this.env.DAILY_NEURON_BUDGET || 9000} neuronas/día`,
         );
         return true;
       }
@@ -296,6 +321,67 @@ export class SecretarioSession implements DurableObject {
       case '/tareas': {
         const rows = (await this.env.DB.prepare("SELECT id,kind,instruction,due_at,cron FROM tasks WHERE chat_id=? AND status='pending' ORDER BY due_at LIMIT 30").bind(chatId).all<any>()).results;
         await reply(rows.length ? rows.map((r) => `• ${r.id} · ${r.due_at}${r.cron ? ` · cron ${r.cron}` : ''} · ${r.kind} · ${r.instruction}`).join('\n') : 'No hay tareas programadas.');
+        return true;
+      }
+      case '/agenda': {
+        if (!(await googleConfigured(this.env))) return void (await reply('Google no está conectado. Usa /google primero.')), true;
+        const [first, ...more] = arg.split(/\s+/).filter(Boolean);
+        let day: string | null;
+        let days = 1;
+        if (!first || first.toLowerCase() === 'semana') {
+          day = resolveDay('hoy', this.tz);
+          if (first) days = 7;
+        } else {
+          day = resolveDay(first, this.tz);
+          const n = Number(more[0]);
+          if (more[0]?.toLowerCase() === 'semana') days = 7;
+          else if (n > 0) days = Math.min(31, n);
+        }
+        if (!day) return void (await reply(`No entiendo "${first}". Usa: /agenda, /agenda mañana, /agenda semana, /agenda lunes, /agenda 12/09 o /agenda 2026-09-12 [días].`)), true;
+        await typing(this.env, chatId);
+        const ag = await buildAgenda(this.env, this.tz, day, days);
+        await reply(renderAgenda(ag, this.tz), false);
+        return true;
+      }
+      case '/docs': {
+        const docs = await listDocuments(this.env, 25);
+        await reply(
+          docs.length
+            ? `📚 **Base de conocimiento** (${docs.length} documentos recientes)\n\n${docs.map((d) => `• ${d.id} · **${d.title}** · ${d.chunks} fragmentos · ${d.created_at.slice(0, 10)}\n  _${clip(d.summary ?? '', 160)}_`).join('\n\n')}\n\nPara borrar uno, dímelo por su id.`
+            : 'La base de conocimiento está vacía. Mándame archivos, fotos o enlaces y los guardaré.',
+          false,
+        );
+        return true;
+      }
+      case '/instrucciones': {
+        if (arg.toLowerCase() === 'borrar') {
+          await setSetting(this.env, 'self_prompt', '');
+          await reply('Instrucciones propias borradas.');
+        } else {
+          const sp = (await getSetting(this.env, 'self_prompt')) || '';
+          await reply(sp ? `📝 Instrucciones que me he dado a mí mismo:\n\n${sp}\n\nPara vaciarlas: /instrucciones borrar` : 'Aún no me he dado instrucciones propias. Cuando descubra reglas o preferencias las guardaré aquí.');
+        }
+        return true;
+      }
+      case '/secreto': {
+        const [rawName, ...valueParts] = arg.split(/\s+/);
+        const value = valueParts.join(' ').trim();
+        if (!rawName || !value) return void (await reply('Uso: /secreto NOMBRE valor  (p. ej. /secreto STRAVA_TOKEN abc123). Se guarda cifrado y el agente lo usa como {{secret:NOMBRE}}.')), true;
+        const name = normalizeSecretName(rawName);
+        await vaultSet(this.env, name, value);
+        await audit(this.env, chatId, 'vault_set', { name });
+        // Borramos tu mensaje para que la clave no quede en el chat.
+        await tg(this.env, 'deleteMessage', { chat_id: chatId, message_id: messageId }).catch(() => undefined);
+        await send(this.env, chatId, `🔐 Credencial ${name} guardada cifrada. He borrado tu mensaje para que no quede en el chat. Guardadas: ${(await vaultList(this.env)).join(', ')}.`, { plain: true });
+        return true;
+      }
+      case '/herramientas': {
+        const rows = (await this.env.DB.prepare("SELECT name,description,version,uses FROM dyn_tools WHERE status='active' ORDER BY name").all<any>()).results;
+        const secrets = await vaultList(this.env);
+        await reply(
+          `🧰 **Herramientas fijas**: ${ALL_TOOLS.length}\n\n**Creadas por el agente** (${rows.length}):\n${rows.length ? rows.map((r) => `• ${r.name} (v${r.version}, ${r.uses} usos): ${r.description}`).join('\n') : '— ninguna todavía —'}\n\n**Credenciales en el baúl**: ${secrets.length ? secrets.join(', ') : 'ninguna'}`,
+          false,
+        );
         return true;
       }
       case '/feedback': {
@@ -361,6 +447,7 @@ export class SecretarioSession implements DurableObject {
             summary: this.state.summary,
             onTasksChanged: async () => undefined,
             sendFile: (name, content, caption) => sendDocument(this.env, t.chat_id, name, content, caption),
+            sendText: async (text) => void (await send(this.env, t.chat_id, text)),
           });
           result = r.text;
           await send(this.env, t.chat_id, `🗓 Tarea programada: ${clip(t.instruction, 80)}\n\n${r.text}`);

@@ -85,6 +85,71 @@ function parseArgs(a: unknown): Record<string, unknown> {
   return {};
 }
 
+/** Convierte una lista de argumentos estilo Python (a="x", b=2, c=true) en objeto. */
+function parsePythonArgs(src: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const re = /(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[[^\]]*\]|\{[^}]*\}|[^,()]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    const key = m[1];
+    const raw = m[2].trim();
+    let val: unknown = raw;
+    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) val = raw.slice(1, -1).replace(/\\(["'])/g, '$1');
+    else if (raw === 'True' || raw === 'true') val = true;
+    else if (raw === 'False' || raw === 'false') val = false;
+    else if (raw === 'None' || raw === 'null') val = null;
+    else if (/^-?\d+(\.\d+)?$/.test(raw)) val = Number(raw);
+    else if (raw.startsWith('[') || raw.startsWith('{')) {
+      try {
+        val = JSON.parse(raw.replace(/'/g, '"'));
+      } catch {
+        val = raw;
+      }
+    }
+    out[key] = val;
+  }
+  return out;
+}
+
+/**
+ * Respaldo: algunos modelos (Llama 4, Qwen) escriben las llamadas como texto en vez de usar el formato
+ * estructurado: `[get_time(), calendar_list(from="...", to="...")]` o `[llamada a get_time: {}]`.
+ * Solo se aceptan nombres de herramientas conocidas para no ejecutar nada inventado.
+ */
+export function parseTextToolCalls(content: string, tools: ToolDef[]): ToolCall[] {
+  if (!content || !tools.length) return [];
+  const known = new Set(tools.map((t) => t.name));
+  const calls: ToolCall[] = [];
+  const text = content.trim();
+
+  // Formato "[llamada a nombre: {json}]" (el que usamos al serializar el historial para Workers AI).
+  const reLlamada = /\[llamada a (\w+):\s*(\{[\s\S]*?\})\s*\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = reLlamada.exec(text))) {
+    if (!known.has(m[1])) continue;
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(m[2]);
+    } catch {
+      /* argumentos ilegibles: se llama sin ellos */
+    }
+    calls.push({ id: uid('call_'), name: m[1], arguments: args });
+  }
+  if (calls.length) return calls;
+
+  // Formato pythónico: toda la respuesta es una lista de llamadas.
+  if (!/^\[?\s*\w+\s*\(/.test(text)) return [];
+  const rePy = /(\w+)\s*\(((?:[^()"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*)\)/g;
+  while ((m = rePy.exec(text))) {
+    if (!known.has(m[1])) continue;
+    calls.push({ id: uid('call_'), name: m[1], arguments: parsePythonArgs(m[2]) });
+  }
+  // Si además del bloque de llamadas hay prosa larga, no es una llamada sino una explicación.
+  const stripped = text.replace(rePy, '').replace(/[\[\],\s]/g, '');
+  if (stripped.length > 40) return [];
+  return calls;
+}
+
 /** Mensajes en formato Workers AI: las llamadas a herramientas del asistente se serializan en texto. */
 function toWorkersAI(messages: ChatMessage[]): any[] {
   return messages.map((m) => {
@@ -119,7 +184,7 @@ async function callWorkersAI(env: Env, model: string, messages: ChatMessage[], t
   const body: any = { messages: toWorkersAI(messages), max_tokens: maxTokens, temperature: 0.3 };
   if (tools.length) body.tools = tools.map((t) => ({ type: 'function', function: t }));
   const r: any = await (env.AI as any).run(model, body);
-  const raw: any[] = Array.isArray(r?.tool_calls) ? r.tool_calls : [];
+  const raw: any[] = Array.isArray(r?.tool_calls) ? r.tool_calls : Array.isArray(r?.choices?.[0]?.message?.tool_calls) ? r.choices[0].message.tool_calls : [];
   const toolCalls: ToolCall[] = raw
     .map((c) => ({
       id: c.id || uid('call_'),
@@ -130,14 +195,22 @@ async function callWorkersAI(env: Env, model: string, messages: ChatMessage[], t
   let content = '';
   if (typeof r?.response === 'string') content = r.response;
   else if (Array.isArray(r?.output)) {
-    // Formato "responses" (gpt-oss): buscamos el texto final.
+    // Formato "responses" (gpt-oss): texto final y llamadas a función como items de salida.
     for (const item of r.output) {
-      if (item?.type === 'message' && Array.isArray(item.content))
-        content += item.content.map((c: any) => c?.text ?? '').join('');
+      if (item?.type === 'message' && Array.isArray(item.content)) content += item.content.map((c: any) => c?.text ?? '').join('');
+      else if (item?.type === 'function_call' && item.name) toolCalls.push({ id: item.call_id || item.id || uid('call_'), name: item.name, arguments: parseArgs(item.arguments) });
     }
   } else if (r?.choices?.[0]?.message?.content) content = String(r.choices[0].message.content);
-  const usage = { input: Number(r?.usage?.prompt_tokens ?? 0), output: Number(r?.usage?.completion_tokens ?? 0) };
-  return { content: content.trim(), toolCalls, provider: 'cf', model, usage };
+  content = content.trim();
+  if (!toolCalls.length) {
+    const fromText = parseTextToolCalls(content, tools);
+    if (fromText.length) {
+      toolCalls.push(...fromText);
+      content = '';
+    }
+  }
+  const usage = { input: Number(r?.usage?.prompt_tokens ?? r?.usage?.input_tokens ?? 0), output: Number(r?.usage?.completion_tokens ?? r?.usage?.output_tokens ?? 0) };
+  return { content, toolCalls, provider: 'cf', model, usage };
 }
 
 async function callOpenAICompatible(
@@ -163,8 +236,16 @@ async function callOpenAICompatible(
     name: c.function?.name,
     arguments: parseArgs(c.function?.arguments),
   }));
+  let content = String(msg.content ?? '').trim();
+  if (!toolCalls.length) {
+    const fromText = parseTextToolCalls(content, tools);
+    if (fromText.length) {
+      toolCalls.push(...fromText);
+      content = '';
+    }
+  }
   return {
-    content: String(msg.content ?? '').trim(),
+    content,
     toolCalls,
     provider: t.provider,
     model: t.model,
@@ -178,11 +259,14 @@ const roughTokens = (messages: ChatMessage[]) => Math.ceil(messages.reduce((n, m
  * Elige el primer cerebro disponible de la cadena y salta al siguiente si falla o si Workers AI
  * está cerca del presupuesto diario de neuronas. Devuelve siempre un resultado o lanza el último error.
  */
-export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools: ToolDef[] = [], maxTokens = 1500): Promise<ChatResult> {
+export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools: ToolDef[] = [], maxTokens = 1500, only?: string): Promise<ChatResult> {
   const chain = parseChain(
     tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST,
     tier === 'smart' ? 'cf:@cf/openai/gpt-oss-120b,cf:@cf/meta/llama-3.3-70b-instruct-fp8-fast' : 'cf:@cf/meta/llama-3.1-8b-instruct-fp8-fast',
-  ).filter((t) => available(env, t));
+  )
+    .filter((t) => available(env, t))
+    // Diagnóstico: limitar a un proveedor/modelo concreto ("cf", "gemini" o "cf:@cf/openai/gpt-oss-120b").
+    .filter((t) => !only || t.provider === only || `${t.provider}:${t.model}` === only);
   if (!chain.length) throw new Error('No hay ningún proveedor de IA configurado.');
   const budget = Number(env.DAILY_NEURON_BUDGET || 9000);
   const used = await neuronsUsed(env);
@@ -203,11 +287,48 @@ export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools:
       if (!res.content && !res.toolCalls.length) throw new Error('respuesta vacía');
       return res;
     } catch (e: any) {
-      errors.push(`${t.provider}/${t.model}: ${e?.message ?? e}`);
+      const msg = `${t.provider}/${t.model}: ${String(e?.message ?? e).slice(0, 400)}`;
+      console.warn('cerebro falló', msg);
+      errors.push(msg);
       await recordUsage(env, t.provider, t.model, 0, 0, 0, true).catch(() => undefined);
     }
   }
   throw new Error(`Todos los cerebros fallaron:\n${errors.join('\n')}`);
+}
+
+/** Diagnóstico: lista los modelos que ofrece un proveedor externo. */
+export async function listModels(env: Env, provider: 'gemini' | 'groq' | 'openrouter'): Promise<string[]> {
+  const r = await fetch(`${baseUrl(provider)}/models`, { headers: { authorization: `Bearer ${apiKey(env, provider)}` } });
+  if (!r.ok) throw new Error(`${provider} ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const j = await r.json<any>();
+  return (j.data ?? []).map((m: any) => String(m.id)).sort();
+}
+
+/** Diagnóstico: prueba cada cerebro de la cadena con una petición mínima que exige una llamada a herramienta. */
+export async function probeProviders(env: Env, tier: Tier = 'smart'): Promise<{ provider: string; model: string; ok: boolean; ms: number; toolCalls?: string[]; content?: string; error?: string }[]> {
+  const chain = parseChain(tier === 'smart' ? env.MODEL_CHAIN_SMART : env.MODEL_CHAIN_FAST, '');
+  const tools: ToolDef[] = [
+    { name: 'get_time', description: 'Devuelve la hora actual.', parameters: { type: 'object', properties: {}, required: [] } },
+  ];
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'Eres un asistente. Cuando te pregunten la hora, usa la herramienta get_time.' },
+    { role: 'user', content: '¿Qué hora es?' },
+  ];
+  const out = [];
+  for (const t of chain) {
+    const t0 = Date.now();
+    if (!available(env, t)) {
+      out.push({ provider: t.provider, model: t.model, ok: false, ms: 0, error: 'sin clave configurada' });
+      continue;
+    }
+    try {
+      const res = t.provider === 'cf' ? await callWorkersAI(env, t.model, messages, tools, 200) : await callOpenAICompatible(env, t, messages, tools, 200);
+      out.push({ provider: t.provider, model: t.model, ok: true, ms: Date.now() - t0, toolCalls: res.toolCalls.map((c) => c.name), content: res.content.slice(0, 200) });
+    } catch (e: any) {
+      out.push({ provider: t.provider, model: t.model, ok: false, ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 400) });
+    }
+  }
+  return out;
 }
 
 export async function embed(env: Env, texts: string[]): Promise<number[][]> {

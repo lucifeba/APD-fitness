@@ -25,14 +25,16 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const MARK = '';
+// Marcadores de uso privado (Unicode PUA) para reservar los bloques de código: no aparecen en texto normal.
+const MARK_OPEN = '';
+const MARK_CLOSE = '';
 
 /** Convierte Markdown básico (lo que suelen escribir los modelos) a HTML de Telegram. */
 export function mdToHtml(md: string): string {
   const blocks: string[] = [];
-  let text = md.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, _lang, code) => {
+  let text = md.replace(/[]/g, '').replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, _lang, code) => {
     blocks.push(`<pre>${escapeHtml(String(code).replace(/\n$/, ''))}</pre>`);
-    return `${MARK}${blocks.length - 1}${MARK}`;
+    return `${MARK_OPEN}${blocks.length - 1}${MARK_CLOSE}`;
   });
   text = escapeHtml(text);
   text = text
@@ -44,7 +46,7 @@ export function mdToHtml(md: string): string {
     .replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
     .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
-  text = text.replace(new RegExp(`${MARK}(\\d+)${MARK}`, 'g'), (_m, i) => blocks[Number(i)]);
+  text = text.replace(/(\d+)/g, (_m, i) => blocks[Number(i)] ?? '');
   return text;
 }
 
@@ -73,7 +75,8 @@ export interface SendOpts {
 export async function send(env: Env, chatId: string, text: string, opts: SendOpts = {}): Promise<number | undefined> {
   if (!text?.trim()) return undefined;
   let lastId: number | undefined;
-  const parts = chunk(text);
+  // Las etiquetas HTML alargan el texto (**x** → <b>x</b>), así que troceamos con margen para no pasar de 4096.
+  const parts = chunk(text, opts.plain ? 3900 : 2900);
   for (let i = 0; i < parts.length; i++) {
     const last = i === parts.length - 1;
     const body: Json = { chat_id: chatId, text: opts.plain ? parts[i] : mdToHtml(parts[i]), disable_web_page_preview: true };
@@ -84,13 +87,27 @@ export async function send(env: Env, chatId: string, text: string, opts: SendOpt
     try {
       const m = await tg<{ message_id: number }>(env, 'sendMessage', body);
       lastId = m.message_id;
-    } catch {
-      // El HTML generado puede no gustarle a Telegram. Reintento en texto plano.
-      const m = await tg<{ message_id: number }>(env, 'sendMessage', { ...body, text: parts[i], parse_mode: undefined });
+    } catch (e: any) {
+      // El HTML generado puede no gustarle a Telegram. Reintento en texto plano sin marcas de Markdown.
+      console.warn('telegram html', String(e?.message ?? e).slice(0, 200));
+      const m = await tg<{ message_id: number }>(env, 'sendMessage', { ...body, text: stripMd(parts[i]), parse_mode: undefined });
       lastId = m.message_id;
     }
   }
   return lastId;
+}
+
+/** Quita las marcas de Markdown para un envío en texto plano. */
+function stripMd(md: string): string {
+  return md
+    .replace(/```(\w+)?\n?([\s\S]*?)```/g, '$2')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1$2')
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,;:!?]|$)/g, '$1$2')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1 ($2)');
 }
 
 export async function clearKeyboard(env: Env, chatId: string, messageId: number): Promise<void> {

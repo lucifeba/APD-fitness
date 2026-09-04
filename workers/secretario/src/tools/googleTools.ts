@@ -1,6 +1,7 @@
 import * as g from '../google';
+import { buildAgenda, renderAgenda } from '../agenda';
 import { audit } from '../db';
-import { clip } from '../util';
+import { clip, localClock, localParts, localTime, resolveDay } from '../util';
 import { confirm, params, str, num, type ToolSpec } from './types';
 
 export const googleTools: ToolSpec[] = [
@@ -84,11 +85,61 @@ export const googleTools: ToolSpec[] = [
   },
   {
     def: {
-      name: 'calendar_list',
-      description: 'Lista eventos del calendario principal entre dos fechas ISO.',
-      parameters: params({ from: str('Inicio ISO 8601, p. ej. 2026-09-03T00:00:00+02:00'), to: str('Fin ISO 8601.'), max: num('Por defecto 20.') }, ['from', 'to']),
+      name: 'agenda',
+      description:
+        'Agenda completa de un día o de varios: eventos de TODOS los calendarios de Google y tareas de Google Tasks (las que vencen esos días, las vencidas y las sin fecha). Úsala siempre para "qué tengo", "planes", "agenda", "reuniones", "tareas pendientes". Devuelve `rendered`, un texto ya formateado que puedes enviar tal cual, además de los datos.',
+      parameters: params(
+        {
+          date: str('Día de inicio: "hoy", "mañana", "pasado mañana", "ayer", un día de la semana (lunes…domingo, el próximo), DD/MM o YYYY-MM-DD. Por defecto hoy.'),
+          days: num('Número de días a mostrar desde esa fecha (1 por defecto, 7 para una semana, máximo 31).'),
+        },
+      ),
     },
-    run: async (a, ctx) => g.calendarList(ctx.env, new Date(String(a.from)).toISOString(), new Date(String(a.to)).toISOString(), Number(a.max) || 20),
+    run: async (a, ctx) => {
+      const day = resolveDay(String(a.date ?? 'hoy'), ctx.tz);
+      if (!day) return { error: `No entiendo la fecha "${a.date}". Usa hoy, mañana, un día de la semana, DD/MM o YYYY-MM-DD. Hoy es ${localParts(ctx.tz).date}.` };
+      const ag = await buildAgenda(ctx.env, ctx.tz, day, Number(a.days) || 1);
+      return {
+        rendered: renderAgenda(ag, ctx.tz),
+        from: ag.from,
+        to: ag.to,
+        calendars: ag.calendars.map((c) => c.name),
+        days: ag.days.map((d) => ({
+          date: d.date,
+          events: d.events.map((e) => ({ id: e.id, calendar_id: e.calendarId, calendar: e.calendar, summary: e.summary, start: e.start, end: e.end, allDay: e.allDay, location: e.location })),
+          tasks: d.tasks.map((t) => ({ id: t.id, list_id: t.listId, list: t.list, title: t.title, due: t.due })),
+        })),
+        overdue: ag.overdue.map((t) => ({ id: t.id, list_id: t.listId, list: t.list, title: t.title, due: t.due })),
+        undated_count: ag.undated.length,
+        warnings: ag.warnings,
+      };
+    },
+  },
+  {
+    def: {
+      name: 'calendar_calendars',
+      description: 'Lista los calendarios de la cuenta de Google (id, nombre, si es el principal). Útil para elegir calendar_id al crear o modificar eventos.',
+      parameters: params({}),
+    },
+    run: async (_a, ctx) => (await g.calendarsList(ctx.env, true)).map((c) => ({ id: c.id, name: c.name, primary: c.primary, access: c.accessRole })),
+  },
+  {
+    def: {
+      name: 'calendar_list',
+      description: 'Lista eventos entre dos instantes ISO 8601. Sin calendar_id busca en TODOS los calendarios. Para "qué tengo tal día" prefiere la herramienta agenda.',
+      parameters: params(
+        { from: str('Inicio ISO 8601, p. ej. 2026-09-03T00:00:00+02:00'), to: str('Fin ISO 8601.'), max: num('Por defecto 50.'), calendar_id: str('Opcional: limitar a un calendario.') },
+        ['from', 'to'],
+      ),
+    },
+    run: async (a, ctx) => {
+      const from = new Date(String(a.from));
+      const to = new Date(String(a.to));
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()))
+        return { error: `Fechas inválidas (from="${a.from}", to="${a.to}"). Ahora es ${localTime(ctx.tz)} (${ctx.tz}), en UTC ${new Date().toISOString()}. Usa ISO 8601 completo, p. ej. 2026-09-05T00:00:00+02:00.` };
+      const evs = await g.calendarList(ctx.env, from.toISOString(), to.toISOString(), Number(a.max) || 50, a.calendar_id ? String(a.calendar_id) : undefined);
+      return evs.map((e) => ({ ...e, start_local: e.allDay ? e.start : `${localParts(ctx.tz, new Date(e.start)).date} ${localClock(ctx.tz, e.start)}`, end_local: e.allDay ? e.end : `${localParts(ctx.tz, new Date(e.end)).date} ${localClock(ctx.tz, e.end)}` }));
+    },
   },
   {
     def: {
@@ -102,13 +153,14 @@ export const googleTools: ToolSpec[] = [
           description: str('Opcional.'),
           location: str('Opcional.'),
           attendees: { type: 'array', items: { type: 'string' }, description: 'Opcional: correos de invitados.' },
+          calendar_id: str('Opcional: calendario destino (ver calendar_calendars). Por defecto el principal.'),
         },
         ['summary', 'start', 'end'],
       ),
     },
     dangerous: true,
     run: async (a, ctx) => {
-      if (!ctx.confirmed) return confirm(`Crear evento "${a.summary}" de ${a.start} a ${a.end}${a.location ? ` en ${a.location}` : ''}${a.attendees?.length ? ` con ${a.attendees.join(', ')}` : ''}`);
+      if (!ctx.confirmed) return confirm(`Crear evento "${a.summary}" de ${a.start} a ${a.end}${a.location ? ` en ${a.location}` : ''}${a.attendees?.length ? ` con ${a.attendees.join(', ')}` : ''}${a.calendar_id ? ` en el calendario ${a.calendar_id}` : ''}`);
       const ev = await g.calendarCreate(ctx.env, a as any, ctx.tz);
       await audit(ctx.env, ctx.chatId, 'calendar_create', ev, true);
       return ev;
@@ -118,14 +170,17 @@ export const googleTools: ToolSpec[] = [
     def: {
       name: 'calendar_update',
       description: 'Modifica un evento existente (título, horas, lugar, descripción). Requiere confirmación del usuario.',
-      parameters: params({ id: str('Id del evento.'), summary: str('Nuevo título.'), start: str('Nuevo inicio ISO.'), end: str('Nuevo fin ISO.'), location: str(''), description: str('') }, ['id']),
+      parameters: params(
+        { id: str('Id del evento.'), calendar_id: str('Calendario al que pertenece el evento (lo da agenda o calendar_list). Por defecto el principal.'), summary: str('Nuevo título.'), start: str('Nuevo inicio ISO.'), end: str('Nuevo fin ISO.'), location: str(''), description: str('') },
+        ['id'],
+      ),
     },
     dangerous: true,
     run: async (a, ctx) => {
-      const { id, ...patch } = a;
+      const { id, calendar_id, ...patch } = a;
       const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined && v !== ''));
       if (!ctx.confirmed) return confirm(`Modificar evento ${id}: ${JSON.stringify(clean)}`);
-      const ev = await g.calendarUpdate(ctx.env, String(id), clean, ctx.tz);
+      const ev = await g.calendarUpdate(ctx.env, String(id), clean, ctx.tz, calendar_id ? String(calendar_id) : undefined);
       await audit(ctx.env, ctx.chatId, 'calendar_update', ev, true);
       return ev;
     },
@@ -134,12 +189,12 @@ export const googleTools: ToolSpec[] = [
     def: {
       name: 'calendar_delete',
       description: 'Elimina un evento del calendario. Requiere confirmación del usuario.',
-      parameters: params({ id: str('Id del evento.'), summary: str('Título, para la confirmación.') }, ['id']),
+      parameters: params({ id: str('Id del evento.'), calendar_id: str('Calendario al que pertenece (lo da agenda o calendar_list). Por defecto el principal.'), summary: str('Título, para la confirmación.') }, ['id']),
     },
     dangerous: true,
     run: async (a, ctx) => {
       if (!ctx.confirmed) return confirm(`Eliminar el evento "${a.summary ?? a.id}"`);
-      await g.calendarDelete(ctx.env, String(a.id));
+      await g.calendarDelete(ctx.env, String(a.id), a.calendar_id ? String(a.calendar_id) : undefined);
       await audit(ctx.env, ctx.chatId, 'calendar_delete', a, true);
       return { deleted: true };
     },
@@ -210,18 +265,48 @@ export const googleTools: ToolSpec[] = [
   },
   {
     def: {
-      name: 'gtasks_list',
-      description: 'Lista las tareas pendientes de Google Tasks.',
-      parameters: params({ max: num('Por defecto 20.') }),
+      name: 'gtasks_lists',
+      description: 'Lista las listas de Google Tasks (id y nombre).',
+      parameters: params({}),
     },
-    run: async (a, ctx) => g.tasksList(ctx.env, Number(a.max) || 20),
+    run: async (_a, ctx) => g.taskLists(ctx.env, true),
+  },
+  {
+    def: {
+      name: 'gtasks_list',
+      description: 'Tareas pendientes de Google Tasks de TODAS las listas (o de una), ordenadas por vencimiento. Cada tarea indica su lista.',
+      parameters: params({ max: num('Por defecto 50.'), list: str('Opcional: nombre o id de una lista.'), due_before: str('Opcional: solo las que vencen antes de esta fecha YYYY-MM-DD (exclusivo).') }),
+    },
+    run: async (a, ctx) => g.tasksList(ctx.env, Number(a.max) || 50, { listRef: a.list ? String(a.list) : undefined, dueBefore: a.due_before ? String(a.due_before) : undefined }),
   },
   {
     def: {
       name: 'gtasks_create',
-      description: 'Crea una tarea en Google Tasks.',
-      parameters: params({ title: str('Título.'), notes: str('Opcional.'), due: str('Opcional: fecha ISO.') }, ['title']),
+      description: 'Crea una tarea en Google Tasks (en la lista indicada o en la primera).',
+      parameters: params({ title: str('Título.'), notes: str('Opcional.'), due: str('Opcional: fecha de vencimiento YYYY-MM-DD.'), list: str('Opcional: nombre o id de la lista.') }, ['title']),
     },
-    run: async (a, ctx) => g.tasksCreate(ctx.env, String(a.title), a.notes ? String(a.notes) : undefined, a.due ? new Date(String(a.due)).toISOString() : undefined),
+    run: async (a, ctx) => {
+      let due: string | undefined;
+      if (a.due) {
+        const d = resolveDay(String(a.due), ctx.tz) ?? (Number.isNaN(new Date(String(a.due)).getTime()) ? null : new Date(String(a.due)).toISOString().slice(0, 10));
+        if (!d) return { error: `Fecha de vencimiento inválida: "${a.due}". Usa YYYY-MM-DD.` };
+        due = `${d}T00:00:00.000Z`;
+      }
+      return g.tasksCreate(ctx.env, String(a.title), a.notes ? String(a.notes) : undefined, due, a.list ? String(a.list) : undefined);
+    },
+  },
+  {
+    def: {
+      name: 'gtasks_complete',
+      description: 'Marca una tarea de Google Tasks como completada. Requiere confirmación del usuario.',
+      parameters: params({ id: str('Id de la tarea.'), list_id: str('Id de la lista a la que pertenece (lo dan agenda y gtasks_list).'), title: str('Título, para la confirmación.') }, ['id', 'list_id']),
+    },
+    dangerous: true,
+    run: async (a, ctx) => {
+      if (!ctx.confirmed) return confirm(`Marcar como completada la tarea "${a.title ?? a.id}"`);
+      await g.tasksComplete(ctx.env, String(a.list_id), String(a.id));
+      await audit(ctx.env, ctx.chatId, 'gtasks_complete', a, true);
+      return { completed: true };
+    },
   },
 ];

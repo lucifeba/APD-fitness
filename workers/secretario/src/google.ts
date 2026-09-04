@@ -212,35 +212,125 @@ export async function gmailTrash(env: Env, id: string): Promise<void> {
 
 // ---------- Calendar ----------
 
+export interface CalInfo {
+  id: string;
+  name: string;
+  primary: boolean;
+  /** Si el usuario lo tiene marcado como visible en Google Calendar. */
+  selected: boolean;
+  accessRole: string;
+  color?: string;
+}
+
 export interface CalEvent {
   id: string;
   summary: string;
   start: string;
   end: string;
+  allDay: boolean;
+  calendar: string;
+  calendarId: string;
   location?: string;
   description?: string;
   attendees?: string[];
   link?: string;
+  /** Respuesta del propio usuario a la invitación, si la hay. */
+  myStatus?: string;
 }
 
-const evOf = (e: any): CalEvent => ({
-  id: e.id,
-  summary: e.summary ?? '(sin título)',
-  start: e.start?.dateTime ?? e.start?.date ?? '',
-  end: e.end?.dateTime ?? e.end?.date ?? '',
-  location: e.location,
-  description: e.description,
-  attendees: (e.attendees ?? []).map((a: any) => a.email),
-  link: e.htmlLink,
-});
+let calCache: { at: number; list: CalInfo[] } | null = null;
 
-export async function calendarList(env: Env, fromIso: string, toIso: string, max = 20): Promise<CalEvent[]> {
+/** Todos los calendarios de la cuenta (propios y suscritos), salvo los ocultos. Se cachea 10 minutos. */
+export async function calendarsList(env: Env, force = false): Promise<CalInfo[]> {
+  if (!force && calCache && Date.now() - calCache.at < 10 * 60_000) return calCache.list;
+  const j = await gapi<any>(env, 'https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&showHidden=false');
+  const list: CalInfo[] = (j.items ?? [])
+    .filter((c: any) => !c.deleted && !c.hidden)
+    .map((c: any) => ({
+      id: String(c.id),
+      name: String(c.summaryOverride || c.summary || c.id),
+      primary: Boolean(c.primary),
+      selected: c.selected !== false,
+      accessRole: String(c.accessRole ?? ''),
+      color: c.backgroundColor,
+    }))
+    .sort((a: CalInfo, b: CalInfo) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name));
+  calCache = { at: Date.now(), list };
+  return list;
+}
+
+const evOf = (e: any, cal: { id: string; name: string }, ownerEmail?: string): CalEvent => {
+  const self = (e.attendees ?? []).find((a: any) => a.self || (ownerEmail && String(a.email).toLowerCase() === ownerEmail.toLowerCase()));
+  return {
+    id: e.id,
+    summary: e.summary ?? '(sin título)',
+    start: e.start?.dateTime ?? e.start?.date ?? '',
+    end: e.end?.dateTime ?? e.end?.date ?? '',
+    allDay: Boolean(e.start?.date && !e.start?.dateTime),
+    calendar: cal.name,
+    calendarId: cal.id,
+    location: e.location,
+    description: e.description,
+    attendees: (e.attendees ?? []).map((a: any) => a.email),
+    link: e.htmlLink,
+    myStatus: self?.responseStatus,
+  };
+};
+
+async function eventsOf(env: Env, cal: { id: string; name: string }, fromIso: string, toIso: string, max: number): Promise<CalEvent[]> {
   const p = new URLSearchParams({ timeMin: fromIso, timeMax: toIso, singleEvents: 'true', orderBy: 'startTime', maxResults: String(max) });
-  const j = await gapi<any>(env, `https://www.googleapis.com/calendar/v3/calendars/primary/events?${p}`);
-  return (j.items ?? []).map(evOf);
+  const j = await gapi<any>(env, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${p}`);
+  return (j.items ?? []).filter((e: any) => e.status !== 'cancelled').map((e: any) => evOf(e, cal, env.OWNER_EMAIL));
 }
 
-export async function calendarCreate(env: Env, ev: { summary: string; start: string; end: string; description?: string; location?: string; attendees?: string[] }, tz: string): Promise<CalEvent> {
+const startMs = (ev: CalEvent) => new Date(ev.allDay ? `${ev.start}T00:00:00Z` : ev.start).getTime();
+
+/**
+ * Eventos entre dos instantes. Sin `calendarId` consulta TODOS los calendarios de la cuenta y fusiona
+ * el resultado (sin duplicar un mismo evento que aparezca en varios calendarios; se descartan los rechazados).
+ */
+export async function calendarList(env: Env, fromIso: string, toIso: string, max = 20, calendarId?: string): Promise<CalEvent[]> {
+  if (calendarId) {
+    const cals = await calendarsList(env).catch(() => [] as CalInfo[]);
+    const cal = cals.find((c) => c.id === calendarId || (calendarId === 'primary' && c.primary)) ?? { id: calendarId, name: calendarId };
+    return eventsOf(env, cal, fromIso, toIso, max);
+  }
+  const cals = (await calendarsList(env)).slice(0, 25);
+  const perCal = await Promise.all(
+    cals.map((c) =>
+      eventsOf(env, c, fromIso, toIso, Math.max(max, 50)).catch((e) => {
+        console.warn('calendario', c.name, e?.message);
+        return [] as CalEvent[];
+      }),
+    ),
+  );
+  const seen = new Set<string>();
+  const out: CalEvent[] = [];
+  for (const list of perCal)
+    for (const ev of list) {
+      if (ev.myStatus === 'declined') continue;
+      const key = `${ev.id}|${ev.start}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(ev);
+    }
+  out.sort((a, b) => startMs(a) - startMs(b) || Number(b.allDay) - Number(a.allDay));
+  return out.slice(0, Math.max(max, 50));
+}
+
+const calPath = (calendarId?: string) => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId || 'primary')}/events`;
+
+async function calInfo(env: Env, calendarId?: string): Promise<{ id: string; name: string }> {
+  const cals = await calendarsList(env).catch(() => [] as CalInfo[]);
+  const id = calendarId || 'primary';
+  return cals.find((c) => c.id === id || (id === 'primary' && c.primary)) ?? { id, name: id === 'primary' ? 'Principal' : id };
+}
+
+export async function calendarCreate(
+  env: Env,
+  ev: { summary: string; start: string; end: string; description?: string; location?: string; attendees?: string[]; calendar_id?: string },
+  tz: string,
+): Promise<CalEvent> {
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(ev.start);
   const body: any = {
     summary: ev.summary,
@@ -250,28 +340,29 @@ export async function calendarCreate(env: Env, ev: { summary: string; start: str
     end: allDay ? { date: ev.end } : { dateTime: ev.end, timeZone: tz },
     attendees: ev.attendees?.map((email) => ({ email })),
   };
-  const j = await gapi<any>(env, 'https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+  const j = await gapi<any>(env, calPath(ev.calendar_id), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return evOf(j);
+  return evOf(j, await calInfo(env, ev.calendar_id), env.OWNER_EMAIL);
 }
 
-export async function calendarUpdate(env: Env, id: string, patch: Record<string, unknown>, tz: string): Promise<CalEvent> {
+export async function calendarUpdate(env: Env, id: string, patch: Record<string, unknown>, tz: string, calendarId?: string): Promise<CalEvent> {
   const body: any = { ...patch };
-  if (typeof patch.start === 'string') body.start = { dateTime: patch.start, timeZone: tz };
-  if (typeof patch.end === 'string') body.end = { dateTime: patch.end, timeZone: tz };
-  const j = await gapi<any>(env, `https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}`, {
+  delete body.calendar_id;
+  if (typeof patch.start === 'string') body.start = /^\d{4}-\d{2}-\d{2}$/.test(patch.start) ? { date: patch.start } : { dateTime: patch.start, timeZone: tz };
+  if (typeof patch.end === 'string') body.end = /^\d{4}-\d{2}-\d{2}$/.test(patch.end) ? { date: patch.end } : { dateTime: patch.end, timeZone: tz };
+  const j = await gapi<any>(env, `${calPath(calendarId)}/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return evOf(j);
+  return evOf(j, await calInfo(env, calendarId), env.OWNER_EMAIL);
 }
 
-export async function calendarDelete(env: Env, id: string): Promise<void> {
-  await gapi(env, `https://www.googleapis.com/calendar/v3/calendars/primary/events/${id}`, { method: 'DELETE' });
+export async function calendarDelete(env: Env, id: string, calendarId?: string): Promise<void> {
+  await gapi(env, `${calPath(calendarId)}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 // ---------- Drive / Docs ----------
@@ -353,16 +444,78 @@ export async function driveTrash(env: Env, fileId: string): Promise<void> {
 
 // ---------- Google Tasks ----------
 
-export async function tasksList(env: Env, max = 20): Promise<{ id: string; title: string; due?: string; notes?: string }[]> {
-  const j = await gapi<any>(env, `https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=${max}`);
-  return (j.items ?? []).map((t: any) => ({ id: t.id, title: t.title, due: t.due, notes: t.notes }));
+export interface TaskListInfo {
+  id: string;
+  title: string;
 }
 
-export async function tasksCreate(env: Env, title: string, notes?: string, dueIso?: string): Promise<{ id: string }> {
-  const j = await gapi<any>(env, 'https://tasks.googleapis.com/tasks/v1/lists/@default/tasks', {
+export interface GTask {
+  id: string;
+  title: string;
+  /** Fecha de vencimiento YYYY-MM-DD (Google Tasks no guarda la hora). */
+  due?: string;
+  notes?: string;
+  list: string;
+  listId: string;
+  link?: string;
+}
+
+let taskListCache: { at: number; list: TaskListInfo[] } | null = null;
+
+/** Todas las listas de Google Tasks. Se cachea 10 minutos. */
+export async function taskLists(env: Env, force = false): Promise<TaskListInfo[]> {
+  if (!force && taskListCache && Date.now() - taskListCache.at < 10 * 60_000) return taskListCache.list;
+  const j = await gapi<any>(env, 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100');
+  const list: TaskListInfo[] = (j.items ?? []).map((l: any) => ({ id: String(l.id), title: String(l.title) }));
+  taskListCache = { at: Date.now(), list };
+  return list;
+}
+
+async function resolveTaskList(env: Env, listRef?: string): Promise<TaskListInfo> {
+  const lists = await taskLists(env);
+  if (!listRef || listRef === '@default') return lists[0] ?? { id: '@default', title: 'Mis tareas' };
+  const ref = listRef.trim().toLowerCase();
+  return lists.find((l) => l.id === listRef) ?? lists.find((l) => l.title.toLowerCase() === ref) ?? lists.find((l) => l.title.toLowerCase().includes(ref)) ?? lists[0] ?? { id: '@default', title: 'Mis tareas' };
+}
+
+/**
+ * Tareas pendientes de TODAS las listas (o de una), ordenadas por vencimiento (las sin fecha al final).
+ * `dueBefore` (YYYY-MM-DD, exclusivo) limita a las que vencen antes de esa fecha.
+ */
+export async function tasksList(env: Env, max = 50, opts: { listRef?: string; dueBefore?: string } = {}): Promise<GTask[]> {
+  const lists = opts.listRef ? [await resolveTaskList(env, opts.listRef)] : await taskLists(env);
+  const perList = await Promise.all(
+    lists.map(async (l) => {
+      const p = new URLSearchParams({ showCompleted: 'false', showHidden: 'false', maxResults: '100' });
+      if (opts.dueBefore) p.set('dueMax', `${opts.dueBefore}T00:00:00.000Z`);
+      const j = await gapi<any>(env, `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(l.id)}/tasks?${p}`).catch((e) => {
+        console.warn('lista de tareas', l.title, e?.message);
+        return { items: [] };
+      });
+      return (j.items ?? [])
+        .filter((t: any) => t.status !== 'completed' && t.title)
+        .map((t: any): GTask => ({ id: t.id, title: t.title, due: t.due ? String(t.due).slice(0, 10) : undefined, notes: t.notes, list: l.title, listId: l.id, link: t.webViewLink }));
+    }),
+  );
+  const out = perList.flat();
+  out.sort((a, b) => (a.due && b.due ? a.due.localeCompare(b.due) : a.due ? -1 : b.due ? 1 : a.title.localeCompare(b.title)));
+  return out.slice(0, max);
+}
+
+export async function tasksCreate(env: Env, title: string, notes?: string, dueIso?: string, listRef?: string): Promise<{ id: string; list: string }> {
+  const l = await resolveTaskList(env, listRef);
+  const j = await gapi<any>(env, `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(l.id)}/tasks`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title, notes, due: dueIso }),
   });
-  return { id: j.id };
+  return { id: j.id, list: l.title };
+}
+
+export async function tasksComplete(env: Env, listId: string, id: string): Promise<void> {
+  await gapi(env, `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'completed' }),
+  });
 }

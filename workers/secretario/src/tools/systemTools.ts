@@ -1,4 +1,4 @@
-import { localTime } from '../util';
+import { addDays, localParts, localTime } from '../util';
 import { params, str, type ToolSpec } from './types';
 
 export const systemTools: ToolSpec[] = [
@@ -29,7 +29,10 @@ export const systemTools: ToolSpec[] = [
       description: 'Devuelve la fecha y hora actual local y en UTC.',
       parameters: params({}),
     },
-    run: async (_a, ctx) => ({ local: localTime(ctx.tz), utc: new Date().toISOString(), timezone: ctx.tz }),
+    run: async (_a, ctx) => {
+      const p = localParts(ctx.tz);
+      return { local: localTime(ctx.tz), date: p.date, time: p.time, weekday: p.weekday, offset: p.offset, tomorrow: addDays(p.date, 1), utc: new Date().toISOString(), timezone: ctx.tz };
+    },
   },
   {
     def: {

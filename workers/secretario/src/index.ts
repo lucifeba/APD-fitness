@@ -1,6 +1,12 @@
 import { getSetting, setSetting } from './db';
 import type { Env } from './env';
 import { oauthExchange } from './google';
+import { buildAgenda, renderAgenda } from './agenda';
+import { runAgent } from './agent';
+import { forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
+import { reindexMemories } from './memory';
+import { chat, listModels, probeProviders } from './router';
+import { resolveDay } from './util';
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 
@@ -94,6 +100,69 @@ export default {
       if (req.method === 'POST' && url.pathname === '/admin/setup-webhook') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
         return json({ ok: true, result: await setupWebhook(env) });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/probe') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const tier = url.searchParams.get('tier') === 'fast' ? 'fast' : 'smart';
+        return json({ ok: true, tier, results: await probeProviders(env, tier) });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/models') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const p = url.searchParams.get('provider');
+        if (p !== 'gemini' && p !== 'groq' && p !== 'openrouter') return json({ ok: false, error: 'provider debe ser gemini, groq u openrouter' }, 400);
+        return json({ ok: true, provider: p, models: await listModels(env, p) });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/ask') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const b = await req.json<{ text: string; system?: string; tier?: 'smart' | 'fast'; only?: string }>();
+        const r = await chat(env, b.tier ?? 'smart', [{ role: 'system', content: b.system ?? 'Eres un asistente. Responde en español.' }, { role: 'user', content: b.text }], [], 600, b.only);
+        return json({ ok: true, provider: r.provider, model: r.model, content: r.content });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/reindex') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        return json({ ok: true, memories: await reindexMemories(env) });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/knowledge') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const b = await req.json<{ action: 'url' | 'text' | 'search' | 'list' | 'forget'; url?: string; title?: string; text?: string; query?: string }>();
+        if (b.action === 'url') return json({ ok: true, doc: await ingestUrl(env, String(b.url), b.title) });
+        if (b.action === 'text') return json({ ok: true, doc: await ingestDocument(env, { title: String(b.title || 'texto'), text: String(b.text || ''), source: 'admin' }) });
+        if (b.action === 'search') return json({ ok: true, hits: await searchKnowledge(env, String(b.query || ''), 6) });
+        if (b.action === 'forget') return json({ ok: true, forgotten: await forgetDocument(env, String(b.url || '')) });
+        return json({ ok: true, docs: await listDocuments(env, 50) });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/agent') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const b = await req.json<{ text: string; tier?: 'smart' | 'fast' }>();
+        const sent: string[] = [];
+        const r = await runAgent(env, {
+          chatId: 'admin-test',
+          tz: env.TIMEZONE || 'Europe/Madrid',
+          history: [{ role: 'user', content: b.text }],
+          summary: '',
+          tier: b.tier,
+          onTasksChanged: async () => undefined,
+          sendFile: async (name) => void sent.push(`archivo:${name}`),
+          sendText: async (text) => void sent.push(text),
+        });
+        return json({ ok: true, provider: r.provider, toolsUsed: r.toolsUsed, sent, text: r.text, messages: r.messages });
+      }
+      if (req.method === 'POST' && url.pathname === '/admin/agenda') {
+        if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        const tz = env.TIMEZONE || 'Europe/Madrid';
+        const day = resolveDay(url.searchParams.get('date') || 'hoy', tz);
+        if (!day) return json({ ok: false, error: 'fecha no reconocida' }, 400);
+        const ag = await buildAgenda(env, tz, day, Number(url.searchParams.get('days')) || 1);
+        const rendered = renderAgenda(ag, tz);
+        let sentTo: string | null = null;
+        if (url.searchParams.get('send') === '1') {
+          const owner = await ownerChatId(env);
+          if (owner) {
+            await send(env, owner, rendered);
+            sentTo = owner;
+          }
+        }
+        return json({ ok: true, sentTo, rendered, agenda: ag });
       }
       if (req.method === 'POST' && url.pathname === '/admin/heartbeat') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);

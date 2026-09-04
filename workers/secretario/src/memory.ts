@@ -16,7 +16,7 @@ export async function remember(env: Env, content: string, kind = 'fact', source 
   const text = content.trim();
   if (text.length < 8) return null;
   const [vec] = await embed(env, [text]);
-  const near = await env.VECTORS.query(vec, { topK: 1, returnMetadata: 'none' });
+  const near = await env.VECTORS.query(vec, { topK: 1, returnMetadata: 'none', filter: { kind: { $ne: 'doc' } } });
   const top = near.matches?.[0];
   if (top && top.score >= 0.94) {
     await env.DB.prepare('UPDATE memories SET uses=uses+1, last_used_at=? WHERE id=?').bind(now(), top.id).run();
@@ -34,7 +34,7 @@ export async function recall(env: Env, query: string, k = 6): Promise<Memory[]> 
   if (!query.trim()) return [];
   try {
     const [vec] = await embed(env, [query]);
-    const res = await env.VECTORS.query(vec, { topK: k * 2, returnMetadata: 'none' });
+    const res = await env.VECTORS.query(vec, { topK: k * 2, returnMetadata: 'none', filter: { kind: { $ne: 'doc' } } });
     const ids = (res.matches ?? []).filter((m) => m.score >= 0.45).map((m) => m.id);
     if (!ids.length) return [];
     const rows = (
@@ -76,6 +76,17 @@ export async function listMemories(env: Env, limit = 20, query?: string): Promis
       .bind(limit)
       .all<Memory>()
   ).results;
+}
+
+/** Vuelve a vectorizar todos los recuerdos activos (necesario tras crear el índice de metadatos de Vectorize). */
+export async function reindexMemories(env: Env): Promise<number> {
+  const rows = (await env.DB.prepare("SELECT id,kind,content FROM memories WHERE status='active'").all<{ id: string; kind: string; content: string }>()).results;
+  for (let i = 0; i < rows.length; i += 16) {
+    const batch = rows.slice(i, i + 16);
+    const vecs = await embed(env, batch.map((r) => r.content));
+    await env.VECTORS.upsert(batch.map((r, j) => ({ id: r.id, values: vecs[j], metadata: { kind: r.kind } })));
+  }
+  return rows.length;
 }
 
 export async function countMemories(env: Env): Promise<number> {
