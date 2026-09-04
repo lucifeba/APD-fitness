@@ -5,6 +5,8 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // El sandbox de código (QuickJS) se importa como módulo WebAssembly compilado.
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
   // Latido cada 30 minutos: tareas programadas, correos importantes, agenda próxima.
   "triggers": { "crons": ["*/30 * * * *"] },
   "ai": { "binding": "AI" },

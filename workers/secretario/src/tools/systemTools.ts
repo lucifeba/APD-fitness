@@ -1,4 +1,5 @@
-import { addDays, localParts, localTime } from '../util';
+import { runCode } from '../sandbox';
+import { addDays, clip, localParts, localTime } from '../util';
 import { params, str, type ToolSpec } from './types';
 
 export const systemTools: ToolSpec[] = [
@@ -32,6 +33,28 @@ export const systemTools: ToolSpec[] = [
     run: async (_a, ctx) => {
       const p = localParts(ctx.tz);
       return { local: localTime(ctx.tz), date: p.date, time: p.time, weekday: p.weekday, offset: p.offset, tomorrow: addDays(p.date, 1), utc: new Date().toISOString(), timezone: ctx.tz };
+    },
+  },
+  {
+    def: {
+      name: 'run_code',
+      description:
+        'Ejecuta JavaScript moderno en un sandbox aislado dentro del Worker (sin red ni acceso a archivos; 5 s y 48 MB). Úsalo para cálculos, estadísticas, transformar o cruzar datos, parsear textos o generar tablas/CSV que ninguna herramienta ni API resuelva. Los datos de entrada llegan en la variable global `input` (pásalos en el parámetro input). Devuelve el valor de `return` (objeto, array, número o texto) y las trazas de console.log. Para llamar a APIs usa antes http_request y pasa aquí la respuesta como input.',
+      parameters: params(
+        {
+          code: str('Código JavaScript. Termina con `return <resultado>`. Sin import/require, sin fetch, sin async.'),
+          input: { type: 'object', description: 'Datos de entrada, accesibles como `input` (cualquier JSON).' },
+        },
+        ['code'],
+      ),
+    },
+    run: async (a) => {
+      const r = await runCode(String(a.code), a.input ?? null);
+      const out: Record<string, unknown> = { ok: r.ok, ms: r.ms };
+      if (r.ok) out.result = typeof r.result === 'string' ? clip(r.result, 12000) : JSON.parse(clip(JSON.stringify(r.result ?? null), 12000).replace(/…\[recortado \d+ caracteres\]$/, '') || 'null');
+      else out.error = r.error;
+      if (r.logs.length) out.logs = r.logs.slice(-40);
+      return out;
     },
   },
   {

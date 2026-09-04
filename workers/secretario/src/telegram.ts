@@ -29,9 +29,34 @@ function escapeHtml(s: string): string {
 const MARK_OPEN = '';
 const MARK_CLOSE = '';
 
+/** Tabla Markdown → texto monoespaciado con columnas alineadas (dentro de un bloque de código). */
+function tableToPre(block: string): string {
+  const rows = block
+    .trim()
+    .split('\n')
+    .map((l) =>
+      l
+        .trim()
+        .replace(/^\||\|$/g, '')
+        .split('|')
+        .map((c) => c.trim().replace(/\*\*|__|`/g, '')),
+    )
+    .filter((cells) => !cells.every((c) => /^:?-{2,}:?$/.test(c) || c === ''));
+  if (!rows.length) return block;
+  const cols = Math.max(...rows.map((r) => r.length));
+  const widths = Array.from({ length: cols }, (_v, i) => Math.min(28, Math.max(...rows.map((r) => (r[i] ?? '').length))));
+  const line = (cells: string[]) => cells.map((c, i) => c.slice(0, widths[i]).padEnd(widths[i])).join('  ').trimEnd();
+  const out = [line(rows[0])];
+  if (rows.length > 1) out.push(widths.map((w) => '─'.repeat(w)).join('  '));
+  for (const r of rows.slice(1)) out.push(line(r));
+  return '```\n' + out.join('\n') + '\n```';
+}
+
 /** Convierte Markdown básico (lo que suelen escribir los modelos) a HTML de Telegram. */
 export function mdToHtml(md: string): string {
   const blocks: string[] = [];
+  // Telegram no pinta tablas Markdown: las pasamos a bloque monoespaciado alineado.
+  md = md.replace(/(?:^|\n)((?:[ \t]*\|[^\n]*\|[ \t]*(?:\n|$)){2,})/g, (m, table) => m.replace(table, `${tableToPre(table)}\n`));
   let text = md.replace(/[]/g, '').replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, _lang, code) => {
     blocks.push(`<pre>${escapeHtml(String(code).replace(/\n$/, ''))}</pre>`);
     return `${MARK_OPEN}${blocks.length - 1}${MARK_CLOSE}`;
