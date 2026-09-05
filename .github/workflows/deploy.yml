@@ -6,6 +6,9 @@ on:
       - main
       - master
       - 'claude/**'
+    # Los Workers (Secretario, relé) se despliegan con wrangler/Vercel: sus cambios no deben reconstruir la web.
+    paths-ignore:
+      - 'workers/**'
   workflow_dispatch:
 
 permissions:
