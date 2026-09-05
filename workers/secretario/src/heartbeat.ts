@@ -1,6 +1,6 @@
 import type { Env } from './env';
 import { receipt } from './db';
-import { calendarList, gmailSearch, googleConfigured } from './google';
+import { gmailSearch, googleConfigured } from './google';
 import { ask } from './router';
 import { clip, safeJson } from './util';
 
@@ -31,19 +31,6 @@ export async function heartbeat(env: Env, ownerName: string): Promise<string | n
     console.warn('heartbeat correo', e?.message);
   }
 
-  try {
-    const now = new Date();
-    const events = await calendarList(env, now.toISOString(), new Date(now.getTime() + 95 * 60_000).toISOString(), 5);
-    for (const ev of events) {
-      if (!ev.start.includes('T')) continue;
-      if (await receipt(env, `event:${ev.id}:${ev.start}`)) {
-        const mins = Math.round((new Date(ev.start).getTime() - now.getTime()) / 60_000);
-        alerts.push(`📅 En ${mins} min: **${ev.summary}**${ev.location ? ` · ${ev.location}` : ''}`);
-      }
-    }
-  } catch (e: any) {
-    console.warn('heartbeat agenda', e?.message);
-  }
-
+  // Los avisos de eventos y tareas los programa reminders.ts con alarmas exactas (REMIND_MINUTES antes).
   return alerts.length ? alerts.join('\n') : null;
 }

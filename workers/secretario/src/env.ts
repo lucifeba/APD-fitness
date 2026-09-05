@@ -53,6 +53,10 @@ export interface Env {
   CHATGPT_REASONING?: string;
   /** URL de un relé (p. ej. función en Vercel) para llegar a chatgpt.com desde Workers. */
   CHATGPT_RELAY_URL?: string;
+  /** Minutos de antelación de los avisos automáticos de eventos y tareas (0 desactiva). Por defecto 15. */
+  REMIND_MINUTES?: string;
+  /** Hora local HH:MM del repaso de tareas del día sin hora. Por defecto 08:45. */
+  TASKS_DIGEST_TIME?: string;
 }
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';

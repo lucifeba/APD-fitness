@@ -1,6 +1,7 @@
 import { learn, runAgent, summarize } from './agent';
 import { audit, getSetting, receipt, setSetting, usageSummary } from './db';
 import { ask } from './router';
+import { syncReminders } from './reminders';
 import type { ChatMessage, Env, Incoming, PendingAction } from './env';
 import { googleConfigured, oauthStartUrl } from './google';
 import { heartbeat } from './heartbeat';
@@ -187,6 +188,15 @@ export class SecretarioSession implements DurableObject {
       await send(this.env, chatId, result.text || '(sin respuesta)', { replyTo: incoming.messageId, keyboard: keyboard.length ? keyboard : undefined });
       await this.compactHistory();
       await this.save();
+      // Si ha creado o movido eventos o tareas, programamos ya sus avisos sin esperar al latido.
+      if (result.toolsUsed.some((t) => /^(calendar_create|calendar_update|gtasks_create)$/.test(t)))
+        this.ctx.waitUntil(
+          syncReminders(this.env, chatId, this.tz)
+            .then(async (n) => {
+              if (n) await this.rescheduleAlarm();
+            })
+            .catch((e) => console.warn('avisos', e?.message)),
+        );
       const lastUser = incoming.text;
       this.ctx.waitUntil(
         learn(this.env, lastUser, result.text)
@@ -522,6 +532,7 @@ export class SecretarioSession implements DurableObject {
       await this.save();
     }
     await this.dailyBrief(chatId).catch((e) => console.warn('parte diario', e?.message));
+    if ((await syncReminders(this.env, chatId, this.tz).catch(() => 0)) > 0) await this.rescheduleAlarm();
     // Consolidación diaria del perfil a primera hora.
     const stamp = now().slice(0, 10);
     if ((await getSetting(this.env, 'profile_day')) !== stamp) {

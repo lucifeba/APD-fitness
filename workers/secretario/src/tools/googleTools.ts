@@ -282,8 +282,12 @@ export const googleTools: ToolSpec[] = [
   {
     def: {
       name: 'gtasks_create',
-      description: 'Crea una tarea en Google Tasks (en la lista indicada o en la primera).',
-      parameters: params({ title: str('Título.'), notes: str('Opcional.'), due: str('Opcional: fecha de vencimiento YYYY-MM-DD.'), list: str('Opcional: nombre o id de la lista.') }, ['title']),
+      description:
+        'Crea una tarea en Google Tasks (en la lista indicada o en la predeterminada). Google Tasks solo guarda la fecha: si el usuario da una hora, pásala en `time` y quedará en las notas; el sistema avisa por Telegram automáticamente 15 minutos antes (y de las tareas sin hora, a primera hora del día).',
+      parameters: params(
+        { title: str('Título.'), notes: str('Opcional.'), due: str('Opcional: fecha de vencimiento (hoy, mañana, lunes, DD/MM o YYYY-MM-DD).'), time: str('Opcional: hora HH:MM si el usuario la indica.'), list: str('Opcional: nombre o id de la lista.') },
+        ['title'],
+      ),
     },
     run: async (a, ctx) => {
       let due: string | undefined;
@@ -292,7 +296,11 @@ export const googleTools: ToolSpec[] = [
         if (!d) return { error: `Fecha de vencimiento inválida: "${a.due}". Usa YYYY-MM-DD.` };
         due = `${d}T00:00:00.000Z`;
       }
-      return g.tasksCreate(ctx.env, String(a.title), a.notes ? String(a.notes) : undefined, due, a.list ? String(a.list) : undefined);
+      const time = a.time ? String(a.time).match(/^([01]?\d|2[0-3]):([0-5]\d)$/) : null;
+      const hhmm = time ? `${time[1].padStart(2, '0')}:${time[2]}` : undefined;
+      const notes = [hhmm ? `Hora: ${hhmm}` : '', a.notes ? String(a.notes) : ''].filter(Boolean).join('\n') || undefined;
+      const r = await g.tasksCreate(ctx.env, String(a.title), notes, due, a.list ? String(a.list) : undefined);
+      return { ...r, due: due?.slice(0, 10), time: hhmm, aviso: hhmm && due ? `15 min antes de las ${hhmm}` : due ? 'repaso de tareas del día a primera hora' : 'sin aviso (no tiene fecha)' };
     },
   },
   {
