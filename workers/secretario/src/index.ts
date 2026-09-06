@@ -13,6 +13,7 @@ import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCal
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 import { proposeAccompaniments, type PlanningInput } from './planning';
+import { decideProposal, listProposals, saveProposal } from './planningStore';
 
 export { SecretarioSession };
 
@@ -132,6 +133,21 @@ export default {
         if (url.pathname === '/api/planning/preview' && req.method === 'POST') {
           try { return json({ ok: true, proposal: proposeAccompaniments(await req.json<PlanningInput>()) }); }
           catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : 'Planificación inválida' }, 400); }
+        }
+        if (url.pathname === '/api/planning/proposals') {
+          if (!email) return json({ ok: false, error: 'Inicia sesión con Google.' }, 401);
+          if (req.method === 'GET') return json({ ok: true, proposals: await listProposals(env) });
+          if (req.method === 'POST') {
+            try { return json({ ok: true, proposal: await saveProposal(env, await req.json<PlanningInput>(), email) }); }
+            catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : 'Propuesta inválida' }, 400); }
+          }
+        }
+        if (url.pathname === '/api/planning/decision' && req.method === 'POST') {
+          if (!email || email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase()) return json({ ok: false, error: 'Solo la propietaria puede decidir su planificación.' }, 403);
+          const b = await req.json<{ id?: string; decision?: string }>();
+          if (typeof b.id !== 'string' || !['approved','cancelled'].includes(b.decision || '')) return json({ ok: false, error: 'Decisión inválida' }, 400);
+          try { return json({ ok: true, result: await decideProposal(env, b.id, b.decision as 'approved' | 'cancelled', email) }); }
+          catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : 'No se pudo decidir la propuesta' }, 409); }
         }
         if (url.pathname === '/api/conversation') {
           const chatId = await ownerChatId(env);

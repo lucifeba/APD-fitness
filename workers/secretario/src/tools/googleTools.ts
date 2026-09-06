@@ -1,10 +1,29 @@
 import * as g from '../google';
+import { pharmacyVisitEvent, type PharmacyVisit } from '../pharmacyVisit';
 import { buildAgenda, renderAgenda } from '../agenda';
 import { audit } from '../db';
 import { clip, localClock, localParts, localTime, resolveDay } from '../util';
 import { confirm, params, str, num, type ToolSpec } from './types';
 
 export const googleTools: ToolSpec[] = [
+  {
+    def: {
+      name: 'pharmacy_visit_create',
+      description: 'Crea una visita de farmacia desde la planificación Excel/CRM, exclusivamente en PLANIFICACIÓN y como evento de día completo. Requiere dirección real, clasificación y ruta del origen. No inventes datos: consulta Excel/CRM por VDL y pregunta si faltan. Requiere confirmación.',
+      parameters: params({ pharmacy: str('Nombre de la farmacia.'), date: str('Fecha YYYY-MM-DD.'), address: str('Dirección postal completa de Excel/CRM, con municipio y CP cuando estén disponibles.'), classification: str('Clasificación del cliente del CRM.'), route: str('Ruta de la planificación.'), delegate: str('Delegado.'), clientId: str('VDL del cliente, conservado como texto.'), notes: str('Objetivo y observaciones de la visita.') }, ['pharmacy','date','address','classification','route']),
+    },
+    dangerous: true,
+    run: async (a, ctx) => {
+      const calendars = await g.calendarsList(ctx.env);
+      const targets = calendars.filter(c => c.name.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() === 'planificacion');
+      if (targets.length !== 1) return { error: 'No se ha encontrado un único calendario Planificación. Revisa la configuración de calendarios.' };
+      const event = pharmacyVisitEvent(a as unknown as PharmacyVisit, targets[0].id);
+      if (!ctx.confirmed) return confirm(`Crear ${event.summary} el ${event.start}, todo el día, en Planificación.\n${event.description}`);
+      const result = await g.calendarCreate(ctx.env, event, ctx.tz);
+      await audit(ctx.env, ctx.chatId, 'pharmacy_visit_create', { id: result.id, calendar: targets[0].id, clientId: a.clientId }, true);
+      return { event: result, crmSync: 'pending', note: 'Evento creado. El volcado automático al Excel todavía no está implementado.' };
+    },
+  },
   {
     def: {
       name: 'gmail_search',
