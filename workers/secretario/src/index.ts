@@ -14,6 +14,7 @@ import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 import { proposeAccompaniments, type PlanningInput } from './planning';
 import { decideProposal, listProposals, saveProposal } from './planningStore';
+import { crmApi } from './crm';
 
 export { SecretarioSession };
 
@@ -114,6 +115,10 @@ export default {
         const email = await sessionEmail(req, env);
         if (!email && !adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
         if (email && !['GET', 'HEAD'].includes(req.method) && req.headers.get('origin') !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+        if (url.pathname === '/api/crm') {
+          if (!email) return json({error:'Inicia sesión con Google.'},401);
+          return crmApi(req,env,email);
+        }
         if (url.pathname === '/api/draft' && req.method === 'POST') {
           const b = await req.json<{ to?: string; subject?: string; body?: string }>();
           if (typeof b.subject !== 'string' || typeof b.body !== 'string' || b.body.length > 50000 || /[\r\n]/.test(b.subject) || (b.to && /[\r\n]/.test(b.to))) return json({ ok: false, error: 'Revisa el asunto y el cuerpo del borrador.' }, 400);
