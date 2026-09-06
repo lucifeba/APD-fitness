@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../store/useStore';
-import type { NutritionPlan } from '../types';
+import type { NutritionPlan, NutritionPlanV2 } from '../types';
 import { X, UserCheck, Flame, Zap, Wheat, Droplet, Calculator, CheckCircle2 } from 'lucide-react';
 
 interface Props {
-  plan: NutritionPlan;
+  plan: NutritionPlan | NutritionPlanV2;
   onClose: () => void;
   onAssigned?: () => void;
 }
@@ -42,7 +42,9 @@ function getAgeFromBirthDate(birthDate?: string): number {
 }
 
 export const AssignNutritionModal: React.FC<Props> = ({ plan, onClose, onAssigned }) => {
-  const { athletes, currentUser, assignNutritionToAthlete } = useStore();
+  const { athletes, currentUser, assignNutritionToAthlete, assignNutritionV2ToAthlete } = useStore();
+  // Los planes del asistente nuevo (V2) llevan `mode`; se asignan con su propia función del almacén.
+  const isV2 = 'mode' in (plan as object);
   const [selectedAthleteId, setSelectedAthleteId] = useState('');
   const [customCalories, setCustomCalories] = useState(plan.targetCalories);
   const [customProtein, setCustomProtein] = useState(plan.targetProtein);
@@ -107,7 +109,7 @@ export const AssignNutritionModal: React.FC<Props> = ({ plan, onClose, onAssigne
 
   const handleAssign = () => {
     if (!selectedAthleteId) return;
-    assignNutritionToAthlete(
+    (isV2 ? assignNutritionV2ToAthlete : assignNutritionToAthlete)(
       plan.id,
       selectedAthleteId,
       customCalories,

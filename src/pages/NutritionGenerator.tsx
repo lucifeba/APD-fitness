@@ -93,6 +93,8 @@ function generateDayMenu(
     dinner: 'dinner',
     pre_workout: 'pre_workout',
     post_workout: 'post_workout',
+    dessert: 'snack',
+    protein_shake: 'post_workout',
   };
 
   mealSchedule.forEach(mealType => {

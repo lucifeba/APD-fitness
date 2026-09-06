@@ -2,8 +2,9 @@ import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { useStore } from '../store/useStore';
-import { RECIPES_DB, FOODS_DB } from '../data/nutrition';
-import type { MealPlan, Recipe } from '../types';
+import { RECIPES_DB } from '../data/nutrition';
+import { SPANISH_RECIPES } from '../data/spanishRecipes';
+import type { NutritionPlan, NutritionPlanV2, Recipe, SpanishRecipe } from '../types';
 import {
   ChevronLeft, Calendar, ChefHat, Clock,
   Flame, Beef, Wheat, Droplets, ChevronDown, ChevronUp,
@@ -43,6 +44,8 @@ const MEAL_LABELS: Record<string, string> = {
   dinner: 'Cena',
   pre_workout: 'Pre-Entreno',
   post_workout: 'Post-Entreno',
+  dessert: 'Postre',
+  protein_shake: 'Batido',
 };
 
 const MEAL_COLORS: Record<string, string> = {
@@ -53,6 +56,8 @@ const MEAL_COLORS: Record<string, string> = {
   dinner: 'bg-indigo-50 border-indigo-200',
   pre_workout: 'bg-orange-50 border-orange-200',
   post_workout: 'bg-teal-50 border-teal-200',
+  dessert: 'bg-pink-50 border-pink-200',
+  protein_shake: 'bg-teal-50 border-teal-200',
 };
 
 const MEAL_TEXT_COLORS: Record<string, string> = {
@@ -63,23 +68,67 @@ const MEAL_TEXT_COLORS: Record<string, string> = {
   dinner: 'text-indigo-700',
   pre_workout: 'text-orange-700',
   post_workout: 'text-teal-700',
+  dessert: 'text-pink-700',
+  protein_shake: 'text-teal-700',
 };
 
+// ── Recetas: vista común para el recetario V1 y el recetario español (V2) ──────
+interface RecipeView {
+  id: string;
+  name: string;
+  category: string;
+  prepTime: number;
+  cookTime: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  ingredients: { name: string; quantity: string }[];
+  instructions: string[];
+  tags: string[];
+}
+
+const viewOfV1 = (r: Recipe): RecipeView => ({
+  id: r.id, name: r.name, category: r.category, prepTime: r.prepTime, cookTime: r.cookTime, difficulty: r.difficulty,
+  calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat,
+  ingredients: r.ingredients.map((i) => ({ name: i.foodName, quantity: `${i.quantity} g` })), instructions: r.instructions, tags: r.tags,
+});
+const viewOfV2 = (r: SpanishRecipe): RecipeView => ({
+  id: r.id, name: r.name, category: r.swapGroup || r.category, prepTime: r.prepTime, cookTime: r.cookTime, difficulty: r.difficulty,
+  calories: r.calories, protein: r.protein, carbs: r.carbs, fat: r.fat,
+  ingredients: r.ingredients.map((i) => ({ name: i.name + (i.optional ? ' (opcional)' : ''), quantity: i.quantity })), instructions: r.instructions, tags: r.tags,
+});
+
+function findRecipe(isV2: boolean, id: string): RecipeView | undefined {
+  if (isV2) {
+    const r = SPANISH_RECIPES.find((x) => x.id === id);
+    return r ? viewOfV2(r) : undefined;
+  }
+  const r = RECIPES_DB.find((x) => x.id === id);
+  return r ? viewOfV1(r) : undefined;
+}
+
 // ── Find similar recipes ──────────────────────────────────────────────────────
-function findSimilarRecipes(recipe: Recipe, exclude: string[]): Recipe[] {
-  return RECIPES_DB
-    .filter((r) => r.id !== recipe.id && !exclude.includes(r.id) && r.category === recipe.category)
+function findSimilarRecipes(isV2: boolean, recipe: RecipeView, exclude: string[]): RecipeView[] {
+  const all: RecipeView[] = isV2 ? SPANISH_RECIPES.map(viewOfV2) : RECIPES_DB.map(viewOfV1);
+  const sameSlot = (r: RecipeView) => (isV2 ? r.category === recipe.category || SPANISH_RECIPES.find((x) => x.id === r.id)?.category === SPANISH_RECIPES.find((x) => x.id === recipe.id)?.category : r.category === recipe.category);
+  return all
+    .filter((r) => r.id !== recipe.id && !exclude.includes(r.id) && sameSlot(r))
     .sort((a, b) => {
       // Score by macro similarity
       const scoreA = Math.abs(a.calories - recipe.calories) + Math.abs(a.protein - recipe.protein) * 2;
       const scoreB = Math.abs(b.calories - recipe.calories) + Math.abs(b.protein - recipe.protein) * 2;
       return scoreA - scoreB;
     })
-    .slice(0, 4);
+    .slice(0, 6);
 }
 
+/** Plan unificado: los planes V1 y V2 comparten días, objetivos y deportista. */
+type AnyPlan = (NutritionPlan & { isV2: false; weeks: number }) | (NutritionPlanV2 & { isV2: true; weeks: number });
+
 // ── Export PDF ────────────────────────────────────────────────────────────────
-function exportPDF(plan: ReturnType<typeof usePlanData>) {
+function exportPDF(plan: AnyPlan | null) {
   if (!plan) return;
   const doc = new jsPDF();
   doc.setFontSize(18);
@@ -114,22 +163,16 @@ function exportPDF(plan: ReturnType<typeof usePlanData>) {
   doc.save(`${plan.name.replace(/\s+/g, '_')}.pdf`);
 }
 
-function usePlanData() {
-  const { id } = useParams<{ id: string }>();
-  const { nutritionPlans } = useStore();
-  return nutritionPlans.find(p => p.id === id) ?? null;
-}
-
 export const NutritionPlanDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { nutritionPlans, currentUser, athletes, updateNutritionPlan, addNotification, scheduleNutritionSend, scheduledSends, cancelScheduledSend } = useStore();
+  const { nutritionPlans, nutritionPlansV2, currentUser, athletes, updateNutritionPlan, updateNutritionPlanV2, addNotification, scheduleNutritionSend, scheduledSends, cancelScheduledSend } = useStore();
   const [selectedDay, setSelectedDay] = useState(0);
   const [expandedRecipe, setExpandedRecipe] = useState<string | null>(null);
 
   // Swap state
   const [swapTarget, setSwapTarget] = useState<{ dayIdx: number; mealIdx: number } | null>(null);
-  const [swapCandidates, setSwapCandidates] = useState<Recipe[]>([]);
+  const [swapCandidates, setSwapCandidates] = useState<RecipeView[]>([]);
 
   // Action panel
   const [showActions, setShowActions] = useState(false);
@@ -140,7 +183,15 @@ export const NutritionPlanDetail: React.FC = () => {
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [adjustingToAthlete, setAdjustingToAthlete] = useState(false);
 
-  const plan = nutritionPlans.find(p => p.id === id);
+  const v1 = nutritionPlans.find((p) => p.id === id);
+  const v2 = v1 ? undefined : nutritionPlansV2.find((p) => p.id === id);
+  const plan: AnyPlan | null = v1 ? { ...v1, isV2: false } : v2 ? { ...v2, isV2: true, weeks: v2.weekCount } : null;
+  /** Guarda cambios en el plan, sea V1 o V2. */
+  const savePlan = (data: { days?: AnyPlan['days']; targetCalories?: number; targetProtein?: number; targetCarbs?: number; targetFat?: number }) => {
+    if (!plan) return;
+    if (plan.isV2) updateNutritionPlanV2(plan.id, data);
+    else updateNutritionPlan(plan.id, data);
+  };
 
   if (!plan) {
     return (
@@ -184,7 +235,7 @@ export const NutritionPlanDetail: React.FC = () => {
     const newCarbs = Math.round((athleteTDEE * carbsPct) / 4);
     const newFat = Math.round((athleteTDEE * fatPct) / 9);
 
-    updateNutritionPlan(plan.id, {
+    savePlan({
       targetCalories: athleteTDEE,
       targetProtein: newProtein,
       targetCarbs: newCarbs,
@@ -204,14 +255,14 @@ export const NutritionPlanDetail: React.FC = () => {
   // ── SWAP MEAL ────────────────────────────────────────────────────────────────
   const handleOpenSwap = (dayIdx: number, mealIdx: number) => {
     const meal = plan.days[dayIdx].meals[mealIdx];
-    const recipe = RECIPES_DB.find(r => r.id === meal.recipeId);
+    const recipe = findRecipe(plan.isV2, meal.recipeId);
     if (!recipe) return;
     const others = plan.days[dayIdx].meals.map(m => m.recipeId);
-    setSwapCandidates(findSimilarRecipes(recipe, others));
+    setSwapCandidates(findSimilarRecipes(plan.isV2, recipe, others));
     setSwapTarget({ dayIdx, mealIdx });
   };
 
-  const handleConfirmSwap = (newRecipe: Recipe) => {
+  const handleConfirmSwap = (newRecipe: RecipeView) => {
     if (!swapTarget) return;
     const { dayIdx, mealIdx } = swapTarget;
     const updatedDays = plan.days.map((day, di) => {
@@ -237,7 +288,7 @@ export const NutritionPlanDetail: React.FC = () => {
       const totalFat = updatedMeals.reduce((s, m) => s + m.fat, 0);
       return { ...day, meals: updatedMeals, totalCalories, totalProtein, totalCarbs, totalFat };
     });
-    updateNutritionPlan(plan.id, { days: updatedDays });
+    savePlan({ days: updatedDays });
     setSwapTarget(null);
     setActionStatus('Plato intercambiado correctamente');
     setTimeout(() => setActionStatus(null), 3000);
@@ -505,6 +556,14 @@ export const NutritionPlanDetail: React.FC = () => {
           </div>
         </div>
 
+        {/* Notas e instrucciones del plan (V2) */}
+        {plan.isV2 && (plan.notes || plan.context?.patientDescription) && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-6 text-sm text-slate-600 space-y-1.5">
+            {plan.context?.patientDescription && <p><span className="font-semibold text-slate-700">Paciente:</span> {plan.context.patientDescription}</p>}
+            {plan.notes && plan.notes.split('\n').map((line, i) => <p key={i}>{line}</p>)}
+          </div>
+        )}
+
         {/* Day selector */}
         <div className="flex gap-2 overflow-x-auto pb-2 mb-5 scrollbar-hide">
           {plan.days.map((day, i) => (
@@ -524,6 +583,11 @@ export const NutritionPlanDetail: React.FC = () => {
         {/* Day totals */}
         {currentDay && (
           <>
+            {currentDay.notes && (
+              <div className="mb-3 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2.5 rounded-xl text-xs">
+                <Zap className="w-3.5 h-3.5 shrink-0" /> {currentDay.notes}
+              </div>
+            )}
             <div className="bg-slate-50 rounded-xl p-4 mb-5 grid grid-cols-4 gap-3 text-center text-sm">
               {[
                 { label: 'kcal', value: currentDay.totalCalories, target: plan.targetCalories },
@@ -545,7 +609,7 @@ export const NutritionPlanDetail: React.FC = () => {
             {/* Meals */}
             <div className="space-y-3">
               {currentDay.meals.map((meal, mi) => {
-                const recipe = RECIPES_DB.find(r => r.id === meal.recipeId);
+                const recipe = findRecipe(plan.isV2, meal.recipeId);
                 const isExpanded = expandedRecipe === `${selectedDay}-${mi}`;
                 return (
                   <div key={mi} className={`bg-white rounded-2xl border ${MEAL_COLORS[meal.mealType] || 'bg-white border-slate-100'} shadow-sm overflow-hidden`}>
@@ -596,9 +660,9 @@ export const NutritionPlanDetail: React.FC = () => {
                             <p className="text-xs font-semibold text-slate-600 mb-1.5">Ingredientes (por ración):</p>
                             <ul className="space-y-0.5">
                               {recipe.ingredients.map((ing, i) => (
-                                <li key={i} className="text-xs text-slate-500 flex justify-between">
-                                  <span>{ing.foodName}</span>
-                                  <span className="text-slate-400">{ing.quantity}g</span>
+                                <li key={i} className="text-xs text-slate-500 flex justify-between gap-3">
+                                  <span>{ing.name}</span>
+                                  <span className="text-slate-400 text-right">{ing.quantity}</span>
                                 </li>
                               ))}
                             </ul>

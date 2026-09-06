@@ -4,6 +4,16 @@ import { useStore } from '../../store/useStore';
 import { useNavigate } from 'react-router-dom';
 import { Apple, ChevronRight, Flame, Beef, Wheat, Droplets, ChefHat, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { RECIPES_DB } from '../../data/nutrition';
+import { SPANISH_RECIPES } from '../../data/spanishRecipes';
+
+/** Detalle de receta común para planes V1 (recetario base) y V2 (recetario español). */
+function recipeDetails(id: string): { prepTime: number; cookTime: number; ingredients: { name: string; quantity: string }[]; instructions: string[] } | undefined {
+  const v1 = RECIPES_DB.find((r) => r.id === id);
+  if (v1) return { prepTime: v1.prepTime, cookTime: v1.cookTime, ingredients: v1.ingredients.map((i) => ({ name: i.foodName, quantity: `${i.quantity} g` })), instructions: v1.instructions };
+  const v2 = SPANISH_RECIPES.find((r) => r.id === id);
+  if (v2) return { prepTime: v2.prepTime, cookTime: v2.cookTime, ingredients: v2.ingredients.map((i) => ({ name: i.name, quantity: i.quantity })), instructions: v2.instructions };
+  return undefined;
+}
 
 const MEAL_LABELS: Record<string, string> = {
   breakfast: 'Desayuno', mid_morning: 'Media Mañana', lunch: 'Comida',
@@ -17,13 +27,16 @@ const MEAL_COLORS: Record<string, string> = {
 };
 
 export const AthleteMyNutrition: React.FC = () => {
-  const { currentUser, athletes, nutritionPlans } = useStore();
+  const { currentUser, athletes, nutritionPlans, nutritionPlansV2 } = useStore();
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(0);
   const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
 
   const athleteRecord = athletes.find((a) => a.email === currentUser?.email);
-  const myPlans = nutritionPlans.filter((np) => np.athleteId === athleteRecord?.id);
+  // Planes asignados, tanto del generador clásico como del asistente nuevo (V2).
+  const myPlans = [...nutritionPlans, ...nutritionPlansV2]
+    .filter((np) => np.athleteId === athleteRecord?.id)
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
 
   const plan = myPlans.find((p) => p.id === selectedPlan) || myPlans[myPlans.length - 1];
 
@@ -94,7 +107,7 @@ export const AthleteMyNutrition: React.FC = () => {
                 {plan.days[selectedDay] && (
                   <div className="space-y-3">
                     {plan.days[selectedDay].meals.map((meal, mi) => {
-                      const recipe = RECIPES_DB.find((r) => r.id === meal.recipeId);
+                      const recipe = recipeDetails(meal.recipeId);
                       const isExp = expandedMeal === `${selectedDay}-${mi}`;
                       return (
                         <div key={mi} className={`bg-white rounded-2xl border ${MEAL_COLORS[meal.mealType] || 'border-slate-100'} shadow-sm overflow-hidden`}>
@@ -128,7 +141,7 @@ export const AthleteMyNutrition: React.FC = () => {
                                   <ul className="space-y-0.5">
                                     {recipe.ingredients.map((ing, i) => (
                                       <li key={i} className="text-xs text-slate-500 flex justify-between">
-                                        <span>{ing.foodName}</span><span className="text-slate-400">{ing.quantity}g</span>
+                                        <span>{ing.name}</span><span className="text-slate-400 text-right">{ing.quantity}</span>
                                       </li>
                                     ))}
                                   </ul>
