@@ -307,5 +307,7 @@ export const autonomyTools: ToolSpec[] = [
 
 /** Instrucciones que el agente se ha dado a sí mismo, para inyectar en el prompt. */
 export async function selfPrompt(env: Env): Promise<string> {
-  return (await getSetting(env, 'self_prompt')) || '';
+  const learned = (await getSetting(env, 'self_prompt')) || '';
+  const admin = (await getSetting(env, 'admin_prompt')) || '';
+  return `${learned}\n\nInstrucciones del administrador (prioridad sobre preferencias aprendidas):\n${admin}`;
 }

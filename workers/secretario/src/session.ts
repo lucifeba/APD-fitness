@@ -54,7 +54,17 @@ export class SecretarioSession implements DurableObject {
     const url = new URL(request.url);
     await this.load();
     try {
-      if (url.pathname === '/update') {
+      if (url.pathname === '/web-message' && request.method === 'POST') {
+        const { chatId, text } = await request.json<{ chatId: string; text: string }>();
+        if (typeof text !== 'string' || !text.trim() || text.length > 16000) return Response.json({ error: 'Mensaje vacío o demasiado largo' }, { status: 400 });
+        const task = this.queue.then(async () => {
+          await send(this.env, chatId, `Desde la web:\n${text}`, { plain: true, skipHistory: true });
+          await this.converse(chatId, { chatId, messageId: 0, text, kind: 'text' }, 'web');
+        });
+        this.queue = task.catch((e) => console.error('web message', e));
+        await task;
+        return Response.json({ ok: true });
+      } else if (url.pathname === '/update') {
         // Respondemos enseguida a Telegram y procesamos en segundo plano dentro del objeto.
         const update = await request.json<any>();
         this.queue = this.queue.then(() => this.handleUpdate(update)).catch((e) => console.error('update', e));
@@ -159,11 +169,12 @@ export class SecretarioSession implements DurableObject {
     return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind, replyTo };
   }
 
-  private async converse(chatId: string, incoming: Incoming): Promise<void> {
+  private async converse(chatId: string, incoming: Incoming, source = 'telegram'): Promise<void> {
     const state = await this.load();
     let userText = incoming.text;
     if (incoming.replyTo) userText = `[Respondiendo a ${incoming.replyTo.fromBot ? 'tu mensaje' : 'un mensaje'}: "${incoming.replyTo.text}"]\n${userText}`;
     state.history.push({ role: 'user', content: userText });
+    await this.env.DB.prepare('INSERT INTO conversation_messages(chat_id,role,source,content) VALUES(?,?,?,?)').bind(chatId, 'user', source, userText).run();
     state.lastActivity = now();
     const typingLoop = setInterval(() => void typing(this.env, chatId), 4500);
     try {
@@ -185,7 +196,7 @@ export class SecretarioSession implements DurableObject {
         { text: `✅ Confirmar: ${clip(p.summary.split('\n')[0], 28)}`, data: `ok:${p.id}` },
         { text: '❌ Cancelar', data: `no:${p.id}` },
       ]);
-      await send(this.env, chatId, result.text || '(sin respuesta)', { replyTo: incoming.messageId, keyboard: keyboard.length ? keyboard : undefined });
+      await send(this.env, chatId, result.text || '(sin respuesta)', { replyTo: incoming.messageId || undefined, keyboard: keyboard.length ? keyboard : undefined });
       await this.compactHistory();
       await this.save();
       // Si ha creado o movido eventos o tareas, programamos ya sus avisos sin esperar al latido.
@@ -208,6 +219,7 @@ export class SecretarioSession implements DurableObject {
       state.history.pop();
       await this.save();
       await send(this.env, chatId, `Se me ha atragantado esto: ${clip(String(e?.message ?? e), 600)}\n\nPrueba otra vez o reformula.`, { plain: true });
+      if (source === 'web') throw e;
     }
   }
 
@@ -544,4 +556,3 @@ export class SecretarioSession implements DurableObject {
     await this.rescheduleAlarm();
   }
 }
-

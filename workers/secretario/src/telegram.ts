@@ -95,6 +95,7 @@ export interface SendOpts {
   replyTo?: number;
   keyboard?: { text: string; data: string }[][];
   plain?: boolean;
+  skipHistory?: boolean;
 }
 
 export async function send(env: Env, chatId: string, text: string, opts: SendOpts = {}): Promise<number | undefined> {
@@ -118,6 +119,9 @@ export async function send(env: Env, chatId: string, text: string, opts: SendOpt
       const m = await tg<{ message_id: number }>(env, 'sendMessage', { ...body, text: stripMd(parts[i]), parse_mode: undefined });
       lastId = m.message_id;
     }
+  }
+  if (!opts.skipHistory) {
+    await env.DB.prepare('INSERT INTO conversation_messages(chat_id,role,source,content) VALUES(?,?,?,?)').bind(chatId, 'assistant', 'telegram', text).run().catch(e => console.warn('conversation history', e));
   }
   return lastId;
 }

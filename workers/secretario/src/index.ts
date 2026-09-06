@@ -1,9 +1,9 @@
 import { getSetting, setSetting } from './db';
 import type { Env } from './env';
-import { oauthExchange } from './google';
+import { oauthExchange, gmailDraft } from './google';
 import { buildAgenda, renderAgenda } from './agenda';
 import { runAgent } from './agent';
-import { forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
+import { extractText, forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
 import { reindexMemories } from './memory';
 import { chat, forgetChatGPTCache, listModels, probeProviders } from './router';
 import { chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
@@ -12,10 +12,11 @@ import { resolveDay, uid } from './util';
 import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
+import { proposeAccompaniments, type PlanningInput } from './planning';
 
 export { SecretarioSession };
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data, null, 2), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
 function adminOk(req: Request, env: Env): boolean {
   const auth = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
@@ -111,6 +112,53 @@ export default {
       if (url.pathname.startsWith('/api/')) {
         const email = await sessionEmail(req, env);
         if (!email && !adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);
+        if (email && !['GET', 'HEAD'].includes(req.method) && req.headers.get('origin') !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+        if (url.pathname === '/api/draft' && req.method === 'POST') {
+          const b = await req.json<{ to?: string; subject?: string; body?: string }>();
+          if (typeof b.subject !== 'string' || typeof b.body !== 'string' || b.body.length > 50000 || /[\r\n]/.test(b.subject) || (b.to && /[\r\n]/.test(b.to))) return json({ ok: false, error: 'Revisa el asunto y el cuerpo del borrador.' }, 400);
+          const draft = await gmailDraft(env, b.to || '', b.subject, b.body);
+          await audit(env, null, 'panel_draft', { email, draftId: draft.id });
+          return json({ ok: true, draft });
+        }
+        if (url.pathname === '/api/knowledge/upload' && req.method === 'POST') {
+          const form = await req.formData();
+          const file = form.get('file');
+          if (!file || typeof file === 'string' || file.size > 10 * 1024 * 1024) return json({ ok: false, error: 'Adjunta un documento de hasta 10 MB.' }, 400);
+          const extracted = await extractText(env, file.name, file.type, await file.arrayBuffer());
+          if (!extracted.text.trim()) return json({ ok: false, error: 'No se ha podido extraer texto del documento.' }, 400);
+          const document = await ingestDocument(env, { title: file.name, text: extracted.text, source: 'web', mime: file.type });
+          return json({ ok: true, document });
+        }
+        if (url.pathname === '/api/planning/preview' && req.method === 'POST') {
+          try { return json({ ok: true, proposal: proposeAccompaniments(await req.json<PlanningInput>()) }); }
+          catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : 'Planificación inválida' }, 400); }
+        }
+        if (url.pathname === '/api/conversation') {
+          const chatId = await ownerChatId(env);
+          if (!chatId) return json({ ok: false, error: 'Conecta primero Telegram con /start.' }, 409);
+          if (req.method === 'GET') {
+            const after = Math.max(0, Number(url.searchParams.get('after')) || 0);
+            const messages = await env.DB.prepare('SELECT id,role,source,content,created_at FROM conversation_messages WHERE chat_id=? AND id>? ORDER BY id LIMIT 100').bind(chatId, after).all();
+            return json({ ok: true, messages: messages.results });
+          }
+          if (req.method === 'POST') {
+            const b = await req.json<{ text: string }>();
+            return sessionFor(env, chatId).fetch(new Request('https://session/web-message', { method: 'POST', body: JSON.stringify({ chatId, text: b.text }) }));
+          }
+        }
+        if (url.pathname === '/api/programming') {
+          if (email?.toLowerCase() !== 'info@apdsport.com') return json({ ok: false, error: 'Solo el administrador puede programar el agente.' }, 403);
+          if (req.method === 'GET') return json({ ok: true, instructions: await getSetting(env, 'admin_prompt') || '' });
+          if (req.method === 'PUT') {
+            if (req.headers.get('origin') !== url.origin) return json({ ok: false, error: 'Origen no permitido' }, 403);
+            const body = await req.json<{ instructions?: unknown }>();
+            if (typeof body.instructions !== 'string' || body.instructions.length > 20000) return json({ ok: false, error: 'Las instrucciones deben ser texto de hasta 20.000 caracteres.' }, 400);
+            await setSetting(env, 'admin_prompt', body.instructions);
+            await audit(env, null, 'panel_programming', { email, characters: body.instructions.length }, true);
+            return json({ ok: true });
+          }
+          return json({ ok: false, error: 'Método no permitido' }, 405);
+        }
         if (req.method === 'GET' && url.pathname === '/api/status') return json({ ok: true, ...(await statusJson(env)) });
         if (req.method === 'POST' && url.pathname === '/api/openai') {
           const b = await req.json<{ key?: string }>();
