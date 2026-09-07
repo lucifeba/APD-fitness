@@ -65,7 +65,7 @@ export function patchSheet(bytes:Uint8Array,name:string,updates:{row:number;valu
       const col=headers[header]; if(!col) continue; const ref=`${col}${update.row}`;
       const re=new RegExp(`<x:c\\b[^>]*\\br="${ref}"[^>]*(?:\\/>|>[\\s\\S]*?<\\/x:c>)`);
       const old=row.match(re)?.[0]; const style=old?.match(/\bs="([^"]+)"/)?.[1]||'';
-      const next=writtenCell(ref,value,style,header.includes('Fecha'),numericHeaders.includes(header));
+      const next=writtenCell(ref,value,style,/fecha/i.test(header),numericHeaders.includes(header));
       if(old) row=row.replace(old,next); else {
         const cells=[...row.matchAll(/<x:c\b[^>]*\br="([A-Z]+)\d+"[^>]*(?:\/>|>[\s\S]*?<\/x:c>)/g)];
         const after=cells.find(c=>colNumber(c[1])>colNumber(col));
@@ -83,4 +83,4 @@ export function nextEmptyRows(bytes:Uint8Array,name:string,count:number) {
   if(rows.length<count) throw new Error(`No quedan suficientes filas libres en ${name}.`); return rows;
 }
 
-export function displayValue(header:string,value:string) { return header.includes('Fecha')&&/^\d+(?:\.\d+)?$/.test(value)?serialToDate(value):value; }
+export function displayValue(header:string,value:string) { return /fecha/i.test(header)&&/^\d+(?:\.\d+)?$/.test(value)?serialToDate(value):value; }
