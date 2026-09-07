@@ -10,9 +10,12 @@ test('programming controls only appear for administrator',()=>{
  assert.ok(appShell('info@apdsport.com').includes('id="programming"'));
  assert.ok(!appShell('aradelg@gmail.com').includes('id="programming"'));
 });
-test('generated browser JavaScript parses',async()=>{
- const html=await page({BRAND_NAME:'Nuvia'},appShell('info@apdsport.com')).text();
+test('generated browser JavaScript parses and exposes Aravitas sales dashboard',async()=>{
+ const html=await page({BRAND_NAME:'Aravitas'},appShell('info@apdsport.com')).text();
  const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
  assert.doesNotThrow(()=>new Script(script));
  assert.ok(html.includes('Borrador de correo'));
+ assert.ok(html.includes('Cuadro de mando'));
+ assert.ok(html.includes('Aravitas'));
+ assert.ok(!html.includes('Nuvia'));
 });

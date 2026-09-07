@@ -16,6 +16,7 @@ import { proposeAccompaniments, type PlanningInput } from './planning';
 import { decideProposal, listProposals, saveProposal } from './planningStore';
 import { crmApi, importCrmExcel, syncCrmExcel } from './crm';
 import { transcribe } from './media';
+import { salesDashboardApi } from './salesDashboard';
 
 export { SecretarioSession };
 
@@ -129,6 +130,10 @@ export default {
           if (!email || email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase()) return json({error:'Solo la propietaria puede sincronizar el CRM.'},403);
           try { return json({ok:true,result:await syncCrmExcel(env)}); }
           catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo sincronizar el Excel'},409);}
+        }
+        if (url.pathname === '/api/sales-dashboard') {
+          if (!email) return json({error:'Inicia sesión con Google.'},401);
+          return salesDashboardApi(req,env,email);
         }
         if (url.pathname === '/api/draft' && req.method === 'POST') {
           const b = await req.json<{ to?: string; subject?: string; body?: string }>();

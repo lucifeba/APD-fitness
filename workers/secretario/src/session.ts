@@ -14,6 +14,7 @@ import type { ToolCtx } from './tools/types';
 import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, typing } from './telegram';
 import { buildAgenda, renderAgenda } from './agenda';
 import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
+import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
 
 interface State {
   history: ChatMessage[];
@@ -148,6 +149,11 @@ export class SecretarioSession implements DurableObject {
       else {
         try {
           const { bytes } = await downloadFile(this.env, d.file_id);
+          if (/cuadro\s*mando/i.test(name) && /\.xlsx$/i.test(name)) {
+            const result = await importSalesDashboard(this.env, bytes, name, 'telegram', String(msg.from?.username || msg.from?.id || chatId));
+            parts.push(`[${telegramDashboardSummary(result)}]`);
+            return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind };
+          }
           const { text, how } = await extractText(this.env, name, d.mime_type, bytes);
           const doc = await ingestDocument(this.env, { title: name.replace(/\.[a-z0-9]+$/i, ''), text, source: 'telegram', mime: d.mime_type });
           parts.push(
