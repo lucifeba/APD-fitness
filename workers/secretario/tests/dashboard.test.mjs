@@ -16,6 +16,13 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.doesNotThrow(()=>new Script(script));
  assert.ok(html.includes('Redactor de correo'));
  assert.ok(html.includes('Cuadro de mando'));
+ assert.ok(html.includes('GERENTE DE ALTO IMPACTO'));
+ assert.ok(html.includes('sales-client'));
+ assert.ok(html.includes('sales-quarter'));
+ assert.ok(html.includes('sales-chart'));
+ assert.ok(html.includes('Descargar informe PDF'));
+ assert.ok(!html.includes('Oportunidades de activación'));
+ assert.ok(!html.includes('Productos foco'));
  assert.ok(html.includes('Aravitas'));
  assert.ok(!html.includes('Nuvia'));
  assert.ok(html.includes('draft-file'));

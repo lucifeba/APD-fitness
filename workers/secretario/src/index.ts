@@ -156,7 +156,7 @@ export default {
           try { return json({ok:true,result:await syncCrmExcel(env)}); }
           catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo sincronizar el Excel'},409);}
         }
-        if (url.pathname === '/api/sales-dashboard') {
+        if (url.pathname === '/api/sales-dashboard' || url.pathname === '/api/sales-dashboard/report.pdf') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
           return salesDashboardApi(req,env,email);
         }
