@@ -137,7 +137,7 @@ export async function statusJson(env: Env): Promise<Record<string, unknown>> {
   return {
     brand: { name: 'Aravitas', tagline: env.BRAND_TAGLINE || 'Tu secretaria digital' },
     owner: { name: env.OWNER_NAME, email: env.OWNER_EMAIL, tz: env.TIMEZONE || 'Europe/Madrid', localTime: localTime(env.TIMEZONE || 'Europe/Madrid') },
-    bot: { name: env.BOT_NAME, paired: Boolean(env.OWNER_CHAT_ID || ownerChat), publicUrl: env.PUBLIC_URL },
+    bot: { name: 'Aravitas', paired: Boolean(env.OWNER_CHAT_ID || ownerChat), publicUrl: env.PUBLIC_URL },
     google: { connected: googleOk, configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) },
     openai: { connected: Boolean(openaiKey), fromSecret: Boolean(env.OPENAI_API_KEY) },
     chatgpt: { connected: Boolean(gpt), email: gpt?.email || '', verificationUrl: VERIFICATION_URL },
