@@ -12,7 +12,7 @@ test('CRM rejects impossible dates and protected fields',()=>{
  assert.throws(()=>validateCrm('visits',{...data,Cliente:''}));
 });
 test('a stale edit returns a conflict and does not claim Excel synchronization',async()=>{
- const env={DB:{prepare(){return {bind(){return {run:async()=>({meta:{changes:0}})}}}}}};
+ const env={DB:{prepare(){return {bind(){return {first:async()=>null,run:async()=>({meta:{changes:0}})}}}}}};
  const result=await crmApi(new Request('https://example.com/api/crm',{method:'PUT',body:JSON.stringify({id:'test',section:'visits',version:1,data})}),env,'owner@example.com');
  assert.equal(result.status,409);
  assert.match((await result.json()).error,/Otro dispositivo/);

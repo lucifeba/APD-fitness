@@ -41,6 +41,12 @@ export async function crmApi(req: Request, env: Env, email: string): Promise<Res
     const b = await req.json<{id?:unknown;section?:unknown;data?:unknown;version?:unknown}>();
     if (typeof b.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(b.id) || !Number.isInteger(b.version) || Number(b.version)<0) return reply({error:'Identificador o versión inválidos'},400);
     const data = validateCrm(b.section,b.data);
+    if(Number(b.version)>0){
+      const previous=await env.DB.prepare('SELECT data FROM crm_records WHERE id=? AND section=? AND version=?').bind(b.id,b.section,b.version).first<{data:string}>();
+      if(!previous)return reply({error:'Otro dispositivo ha modificado este registro. Recarga y revisa los cambios antes de guardar.'},409);
+      const existing=JSON.parse(previous.data) as Record<string,string>;
+      for(const [key,value] of Object.entries(existing))if(!(crmFields[b.section as CrmSection] as readonly string[]).includes(key))data[key]=value;
+    }
     const stamp = new Date().toISOString();
     const statement = b.version === 0
       ? env.DB.prepare('INSERT OR IGNORE INTO crm_records(id,section,data,updated_at,updated_by) VALUES(?,?,?,?,?)').bind(b.id,b.section,JSON.stringify(data),stamp,email)
