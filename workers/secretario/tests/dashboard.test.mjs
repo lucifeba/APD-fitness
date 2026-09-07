@@ -19,6 +19,8 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(html.includes('Aravitas'));
  assert.ok(!html.includes('Nuvia'));
  assert.ok(html.includes('draft-file'));
+ assert.ok(html.includes('draft-clarification'));
+ assert.ok(html.includes('Guardar correo completo en Gmail'));
  assert.ok(html.includes('knowledge-text'));
  assert.ok(!html.includes('Transcribir audio'));
 });

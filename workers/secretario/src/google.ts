@@ -145,9 +145,9 @@ export async function gmailRead(env: Env, id: string): Promise<MailSummary & { b
   };
 }
 
-function buildRaw(env: Env, to: string, subject: string, body: string, opts: { cc?: string; inReplyTo?: string; references?: string } = {}): string {
+export function buildRaw(env: Env, to: string, subject: string, body: string, opts: { cc?: string; inReplyTo?: string; references?: string } = {}): string {
   const encSubject = `=?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`;
-  const lines = [
+  const headers = [
     `From: ${env.OWNER_NAME || ''} <${env.OWNER_EMAIL}>`,
     `To: ${to}`,
     opts.cc ? `Cc: ${opts.cc}` : '',
@@ -157,10 +157,12 @@ function buildRaw(env: Env, to: string, subject: string, body: string, opts: { c
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
-    '',
-    btoa(unescape(encodeURIComponent(body))),
   ].filter((l) => l !== '');
-  return base64UrlEncode(lines.join('\r\n'));
+  // La línea vacía entre las cabeceras y el contenido es obligatoria en MIME.
+  // Si se elimina, Gmail acepta el borrador y muestra el asunto, pero interpreta
+  // el contenido codificado como una cabecera desconocida y deja el cuerpo vacío.
+  const message = `${headers.join('\r\n')}\r\n\r\n${btoa(unescape(encodeURIComponent(body)))}`;
+  return base64UrlEncode(message);
 }
 
 export async function gmailDraft(env: Env, to: string, subject: string, body: string, threadId?: string, replyToId?: string): Promise<{ id: string; url: string }> {
@@ -177,7 +179,15 @@ export async function gmailDraft(env: Env, to: string, subject: string, body: st
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ message: { raw, threadId } }),
   });
-  return { id: d.id, url: `https://mail.google.com/mail/u/0/#drafts?compose=${d.message?.id ?? ''}` };
+  // Comprobación posterior: no confirmamos éxito hasta que Gmail devuelve el
+  // cuerpo guardado. Protege frente a mensajes MIME aceptados pero mal formados.
+  const saved = await gapi<any>(env, `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(d.id)}?format=full`);
+  const savedBody = extractBody(saved.message?.payload).text.trim();
+  if (body.trim() && !savedBody) {
+    await gapi(env, `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(d.id)}`, { method: 'DELETE' }).catch(() => undefined);
+    throw new Error('Gmail no conservó el cuerpo del correo. El borrador incompleto se descartó; inténtalo de nuevo.');
+  }
+  return { id: d.id, url: `https://mail.google.com/mail/u/0/#drafts?compose=${saved.message?.id ?? d.message?.id ?? ''}` };
 }
 
 export async function gmailSend(env: Env, to: string, subject: string, body: string, replyToId?: string): Promise<string> {

@@ -37,6 +37,31 @@ function sessionFor(env: Env, chatId: string): DurableObjectStub {
   return env.SESSION.get(env.SESSION.idFromName(`chat:${chatId}`));
 }
 
+/**
+ * Lee todo el texto extraído del archivo. Los documentos grandes se recorren por
+ * bloques y se condensan sin omitir nombres, cifras, decisiones ni matices que
+ * puedan cambiar el correo. Así el modelo final recibe el contexto completo sin
+ * exceder su ventana de entrada.
+ */
+async function prepareDraftSource(env: Env, source: string, fileName: string): Promise<string> {
+  const clean = source.slice(0, 400_000).trim();
+  if (clean.length <= 32_000) return clean;
+  const chunks = clean.match(/[\s\S]{1,32_000}/g) || [];
+  const notes: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    notes.push(
+      await ask(
+        env,
+        'fast',
+        'Analiza este fragmento como fuente para redactar un correo. Conserva todos los nombres, cifras, fechas, argumentos, decisiones, peticiones, riesgos, matices y datos accionables. No redactes todavía el correo ni inventes nada. Devuelve notas compactas y fieles en español.',
+        `Archivo: ${fileName}\nFragmento ${i + 1} de ${chunks.length}:\n\n${chunks[i]}`,
+        900,
+      ),
+    );
+  }
+  return notes.map((note, i) => `Notas del fragmento ${i + 1}:\n${note}`).join('\n\n');
+}
+
 async function handleTelegram(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (env.TELEGRAM_WEBHOOK_SECRET && req.headers.get('x-telegram-bot-api-secret-token') !== env.TELEGRAM_WEBHOOK_SECRET) return new Response('forbidden', { status: 403 });
   const update = await req.json<any>();
@@ -144,18 +169,33 @@ export default {
         }
         if (url.pathname === '/api/draft/generate' && req.method === 'POST') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
-          const form=await req.formData(),idea=String(form.get('idea')||'').trim(),file=form.get('file');
+          const form=await req.formData(),idea=String(form.get('idea')||'').trim(),to=String(form.get('to')||'').trim(),clarifications=String(form.get('clarifications')||'').trim(),file=form.get('file');
           if(!idea||idea.length>12000)return json({error:'Escribe una idea de hasta 12.000 caracteres.'},400);
           let source='';let fileName='';
           if(file&&typeof file!=='string'){
             if(file.size>20*1024*1024)return json({error:'El archivo de apoyo no puede superar 20 MB.'},400);
-            fileName=file.name;source=(await extractText(env,file.name,file.type,await file.arrayBuffer())).text;
+            fileName=file.name;
+            const extracted=(await extractText(env,file.name,file.type,await file.arrayBuffer())).text;
+            source=await prepareDraftSource(env,extracted,fileName);
           }
-          const raw=await ask(env,'fast','Redactas correos profesionales en español de España para Araceli Delgado, Área Manager farmacéutica. Devuelve exclusivamente JSON válido con esta forma: {"subject":"asunto breve","body":"correo completo"}. Mantén un tono cercano, claro y profesional. No inventes datos. El cuerpo debe estar listo para enviar y no debe incluir el asunto.',`Idea de Araceli:\n${idea}${source?`\n\nArchivo de apoyo (${fileName}):\n${clip(source,16000)}`:''}`,1400);
-          const draft=safeJson<{subject?:string;body?:string}>(raw,{});const subject=String(draft.subject||'').replace(/[\r\n]+/g,' ').trim(),body=String(draft.body||'').trim();
-          if(!subject||!body)return json({error:'No se ha podido estructurar el borrador. Vuelve a intentarlo.'},502);
+          const raw=await ask(env,source?'smart':'fast',`Eres el redactor personal de Araceli Delgado, Área Manager farmacéutica. Escribes en español de España y reproduces su estilo: cercano, natural, directo, claro, profesional y convincente, sin sonar artificial, grandilocuente ni excesivamente formal. Comprende conjuntamente sus instrucciones, el destinatario, sus aclaraciones y todo el contenido del archivo. Prioriza el objetivo real del correo, estructura bien los argumentos y conserva con precisión nombres, cifras, fechas y matices. No inventes datos. El correo debe quedar completamente listo para que Araceli solo tenga que revisarlo y enviarlo.
+
+Si falta un dato imprescindible o existe una ambigüedad que pueda cambiar materialmente el contenido, no adivines: devuelve preguntas breves. No preguntes por detalles opcionales que puedas resolver razonablemente ni bloquees por no conocer el destinatario.
+
+Devuelve exclusivamente JSON válido:
+{"needs_clarification":false,"questions":[],"subject":"asunto breve","body":"correo completo, con saludo, párrafos y cierre"}
+o, si de verdad necesitas aclaraciones:
+{"needs_clarification":true,"questions":["pregunta concreta"],"subject":"","body":""}.`,
+            `Destinatario: ${to||'no indicado todavía'}\n\nIdea e instrucciones de Araceli:\n${idea}${clarifications?`\n\nAclaraciones de Araceli:\n${clarifications}`:''}${source?`\n\nContenido analizado del archivo de apoyo (${fileName}):\n${clip(source,60_000)}`:''}`,
+            2200,
+          );
+          const draft=safeJson<{needs_clarification?:boolean;questions?:string[];subject?:string;body?:string}>(raw,{});
+          const questions=(draft.questions||[]).map(String).map(x=>x.trim()).filter(Boolean).slice(0,4);
+          if(draft.needs_clarification&&questions.length)return json({ok:true,needsClarification:true,questions,fileName:fileName||null});
+          const subject=String(draft.subject||'').replace(/[\r\n]+/g,' ').trim(),body=String(draft.body||'').trim();
+          if(!subject||!body)return json({error:'No se ha podido preparar el correo completo. Vuelve a intentarlo o añade una aclaración.'},502);
           await audit(env,null,'panel_draft_generate',{email,file:fileName||null,ideaCharacters:idea.length});
-          return json({ok:true,subject,body,fileName:fileName||null});
+          return json({ok:true,needsClarification:false,subject,body,fileName:fileName||null});
         }
         if (url.pathname === '/api/transcribe' && req.method === 'POST') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
