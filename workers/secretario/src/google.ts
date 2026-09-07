@@ -333,7 +333,7 @@ async function calInfo(env: Env, calendarId?: string): Promise<{ id: string; nam
 
 export async function calendarCreate(
   env: Env,
-  ev: { summary: string; start: string; end: string; description?: string; location?: string; attendees?: string[]; calendar_id?: string },
+  ev: { summary: string; start: string; end: string; description?: string; location?: string; attendees?: string[]; calendar_id?: string; transparency?:'transparent'|'opaque'; id?:string },
   tz: string,
 ): Promise<CalEvent> {
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(ev.start);
@@ -344,6 +344,8 @@ export async function calendarCreate(
     start: allDay ? { date: ev.start } : { dateTime: ev.start, timeZone: tz },
     end: allDay ? { date: ev.end } : { dateTime: ev.end, timeZone: tz },
     attendees: ev.attendees?.map((email) => ({ email })),
+    transparency: ev.transparency,
+    id: ev.id,
   };
   const j = await gapi<any>(env, calPath(ev.calendar_id), {
     method: 'POST',
@@ -351,6 +353,19 @@ export async function calendarCreate(
     body: JSON.stringify(body),
   });
   return evOf(j, await calInfo(env, ev.calendar_id), env.OWNER_EMAIL);
+}
+
+/** PUT con ID estable: reintentar una aprobación no duplica eventos. */
+export async function calendarUpsert(
+  env:Env,
+  ev:{id:string;summary:string;start:string;end:string;description?:string;location?:string;calendar_id:string;transparency?:'transparent'|'opaque'},
+  tz:string,
+):Promise<CalEvent>{
+  try{return await calendarCreate(env,ev,tz)}catch(error){
+    if(!String(error).includes('Google 409'))throw error;
+    const j=await gapi<any>(env,`${calPath(ev.calendar_id)}/${encodeURIComponent(ev.id)}`);
+    return evOf(j,await calInfo(env,ev.calendar_id),env.OWNER_EMAIL);
+  }
 }
 
 export async function calendarUpdate(env: Env, id: string, patch: Record<string, unknown>, tz: string, calendarId?: string): Promise<CalEvent> {
@@ -445,6 +460,26 @@ export async function driveTrash(env: Env, fileId: string): Promise<void> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ trashed: true }),
   });
+}
+
+export async function driveBinaryMetadata(env: Env, fileId: string): Promise<{name:string;mimeType:string;modifiedTime:string;size:string}> {
+  return gapi(env, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,mimeType,modifiedTime,size`);
+}
+
+export async function driveDownloadBytes(env: Env, fileId: string): Promise<Uint8Array> {
+  const token = await accessToken(env);
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`Google Drive ${r.status}: ${(await r.text()).slice(0,200)}`);
+  return new Uint8Array(await r.arrayBuffer());
+}
+
+export async function driveUpdateBytes(env: Env, fileId: string, bytes: Uint8Array, mimeType: string): Promise<{modifiedTime:string;size:string}> {
+  const token = await accessToken(env);
+  const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media&fields=modifiedTime,size`, {
+    method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': mimeType }, body: bytes,
+  });
+  if (!r.ok) throw new Error(`Google Drive ${r.status}: ${(await r.text()).slice(0,200)}`);
+  return r.json();
 }
 
 // ---------- Google Tasks ----------

@@ -1,24 +1,30 @@
-# CRM web — estado de implementación
+# CRM web — implementación
 
-La pestaña CRM permite crear, buscar y editar registros de Visitas y Acompañamientos.
-Los nombres de campos proceden de las cabeceras de la fila 5 del Excel CRM.
-Los registros se guardan en D1, con sesión Google obligatoria, control de origen
-y actualización condicionada por versión para impedir sobrescrituras concurrentes.
-No incluye datos personales de ejemplo ni importa automáticamente el Excel.
+La pestaña CRM permite importar el XLSX de Drive, crear, buscar y editar registros de Visitas y Acompañamientos, y sincronizarlos de vuelta al mismo archivo mediante un botón.
 
-## Pendiente antes de considerar terminada la sincronización
+## Seguridad e integridad
 
-- Importar el archivo real de Drive conservando ID de visita, VDL y referencia Calendar.
-- Resolver registros de acompañamiento sin ID sin generar duplicados.
-- Aplicar cambios por campo al XLSX conservando fórmulas, formato y compatibilidad Office.
-- Detectar cambios externos del archivo antes de escribir y presentar conflictos.
-- Implementar el botón de sincronización y actualizar synced_version solo tras éxito.
-- Importar cambios y eliminaciones de Calendar conforme a las reglas de la propietaria.
-- Obtener direcciones completas: CLIENTES contiene ciudad y CP, no calle y número.
-- Verificar en navegador autenticado y confirmar despliegue de las migraciones.
+- Inicio de sesión Google obligatorio; solo la propietaria puede importar y sincronizar.
+- Control de origen para escrituras web.
+- Versiones por registro para impedir sobrescrituras entre dispositivos.
+- Antes de escribir se compara la fecha de modificación del archivo de Drive. Si cambió, se exige una nueva importación.
+- La escritura modifica únicamente las celdas de VISITAS y ACOMPAÑAMIENTOS dentro del XLSX. El resto de las entradas ZIP se conserva byte por byte.
+- ID de visita y referencia de Calendar permanecen protegidos en el editor.
 
-La interfaz indica explícitamente que sus registros aún no se han sincronizado
-con Excel. Guardar un registro no crea eventos ni modifica Drive.
+## Planificación
 
-Validación local: TypeScript y diez pruebas pasan, incluidas fechas inválidas,
-campos protegidos, conflictos de versión y sintaxis del JavaScript del panel.
+La web permite cargar rutas disponibles, generar una propuesta determinista y aprobarla. Solo acepta martes, miércoles y jueves; alterna Madrid y Aragón; equilibra delegados; y penaliza repetir rutas y farmacias. Cada farmacia debe incluir nombre, dirección y clasificación.
+
+Al aprobar:
+
+1. comprueba que el Excel no ha cambiado;
+2. crea eventos de día completo y libres en Calendario de acompañamiento delegados;
+3. crea las visitas en Planificación con dirección, clasificación y ruta;
+4. registra visitas y acompañamientos en el CRM;
+5. sincroniza los registros con el XLSX de Drive.
+
+Los eventos usan identificadores estables para evitar duplicados al reintentar una ejecución interrumpida.
+
+## Validación
+
+TypeScript, pruebas de negocio y sintaxis del navegador. Una prueba de integración sobre una copia real confirmó que la modificación del CRM altera únicamente `xl/worksheets/sheet7.xml` y deja intactos todos los demás archivos internos del libro.

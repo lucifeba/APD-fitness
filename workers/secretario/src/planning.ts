@@ -1,11 +1,12 @@
 /** Deterministic accompaniment proposals. Never writes calendars. */
 export type Region = 'Madrid' | 'Aragón';
+export interface PlanningPharmacy { name:string; address:string; classification:string; clientId?:string; notes?:string }
 export interface RouteDay {
   date: string;
   delegate: string;
   region: Region;
   route: string;
-  pharmacies: string[];
+  pharmacies: (string|PlanningPharmacy)[];
 }
 export interface PlanningInput {
   month: string;
@@ -15,6 +16,7 @@ export interface PlanningInput {
   history: RouteDay[];
 }
 const DAY = 86400000;
+export const pharmacyName=(p:string|PlanningPharmacy)=>typeof p==='string'?p:p.name;
 function dateMs(value: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Fecha inválida: usa YYYY-MM-DD.');
   const ms = Date.parse(`${value}T00:00:00Z`);
@@ -29,7 +31,7 @@ export function proposeAccompaniments(input: PlanningInput) {
   if (!Array.isArray(input.routes) || !Array.isArray(input.history) || input.routes.length > 5000 || input.history.length > 5000) throw new Error('Listado de rutas inválido.');
   for (const row of [...input.routes, ...input.history]) {
     dateMs(row.date);
-    if (!row.delegate?.trim() || !row.route?.trim() || !['Madrid', 'Aragón'].includes(row.region) || !Array.isArray(row.pharmacies) || !row.pharmacies.length || row.pharmacies.some(p => typeof p !== 'string' || !p.trim())) throw new Error('Cada ruta necesita fecha, delegado, zona y farmacias.');
+    if (!row.delegate?.trim() || !row.route?.trim() || !['Madrid', 'Aragón'].includes(row.region) || !Array.isArray(row.pharmacies) || !row.pharmacies.length || row.pharmacies.some(p => !pharmacyName(p)?.trim())) throw new Error('Cada ruta necesita fecha, delegado, zona y farmacias.');
   }
   const history = input.history.filter(r => r.date < `${input.month}-01`);
   const selected: RouteDay[] = [];
@@ -38,8 +40,8 @@ export function proposeAccompaniments(input: PlanningInput) {
   const count = (delegate: string) => selected.filter(r => r.delegate === delegate).length;
   const score = (r: RouteDay) => {
     const prior = [...history, ...selected].filter(h => h.delegate === r.delegate);
-    const clients = new Set(prior.flatMap(h => h.pharmacies));
-    return count(r.delegate) * 10000 + prior.filter(h => h.route === r.route).length * 100 + r.pharmacies.filter(p => clients.has(p)).length;
+    const clients = new Set(prior.flatMap(h => h.pharmacies.map(pharmacyName)));
+    return count(r.delegate) * 10000 + prior.filter(h => h.route === r.route).length * 100 + r.pharmacies.filter(p => clients.has(pharmacyName(p))).length;
   };
   for (let ms = dateMs(`${input.month}-01`); new Date(ms).toISOString().startsWith(input.month); ms += DAY) {
     const day = new Date(ms);

@@ -14,7 +14,8 @@ import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 import { proposeAccompaniments, type PlanningInput } from './planning';
 import { decideProposal, listProposals, saveProposal } from './planningStore';
-import { crmApi } from './crm';
+import { crmApi, importCrmExcel, syncCrmExcel } from './crm';
+import { transcribe } from './media';
 
 export { SecretarioSession };
 
@@ -119,12 +120,34 @@ export default {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
           return crmApi(req,env,email);
         }
+        if (url.pathname === '/api/crm/import' && req.method === 'POST') {
+          if (!email || email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase()) return json({error:'Solo la propietaria puede importar el CRM.'},403);
+          try { return json({ok:true,result:await importCrmExcel(env,email)}); }
+          catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo importar el Excel'},409);}
+        }
+        if (url.pathname === '/api/crm/sync' && req.method === 'POST') {
+          if (!email || email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase()) return json({error:'Solo la propietaria puede sincronizar el CRM.'},403);
+          try { return json({ok:true,result:await syncCrmExcel(env)}); }
+          catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo sincronizar el Excel'},409);}
+        }
         if (url.pathname === '/api/draft' && req.method === 'POST') {
           const b = await req.json<{ to?: string; subject?: string; body?: string }>();
           if (typeof b.subject !== 'string' || typeof b.body !== 'string' || b.body.length > 50000 || /[\r\n]/.test(b.subject) || (b.to && /[\r\n]/.test(b.to))) return json({ ok: false, error: 'Revisa el asunto y el cuerpo del borrador.' }, 400);
           const draft = await gmailDraft(env, b.to || '', b.subject, b.body);
           await audit(env, null, 'panel_draft', { email, draftId: draft.id });
           return json({ ok: true, draft });
+        }
+        if (url.pathname === '/api/transcribe' && req.method === 'POST') {
+          if (!email) return json({error:'Inicia sesión con Google.'},401);
+          const form=await req.formData();const file=form.get('file');
+          if(!file||typeof file==='string'||file.size>25*1024*1024||!/^audio\//.test(file.type))return json({error:'Adjunta un audio de hasta 25 MB.'},400);
+          const result=await transcribe(env,await file.arrayBuffer(),'Nota de voz profesional en español de España. Conserva nombres propios, farmacias, rutas, fechas y tareas.');
+          return json({ok:true,...result});
+        }
+        if(url.pathname==='/api/preferences'){
+          if(!email)return json({error:'Inicia sesión con Google.'},401);
+          if(req.method==='GET'){const p=await env.DB.prepare('SELECT accent FROM user_preferences WHERE email=?').bind(email).first<{accent:string}>();return json({ok:true,accent:p?.accent||'#8b7cf6'});}
+          if(req.method==='PUT'){const b=await req.json<{accent?:string}>();if(!/^#[0-9a-f]{6}$/i.test(b.accent||''))return json({error:'Color inválido'},400);await env.DB.prepare('INSERT INTO user_preferences(email,accent,updated_at) VALUES(?,?,?) ON CONFLICT(email) DO UPDATE SET accent=excluded.accent,updated_at=excluded.updated_at').bind(email,b.accent,new Date().toISOString()).run();return json({ok:true});}
         }
         if (url.pathname === '/api/knowledge/upload' && req.method === 'POST') {
           const form = await req.formData();

@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@jitl/quickjs-wasmfile-release-sync": "^0.32.0",
+    "fflate": "^0.8.2",
     "quickjs-emscripten-core": "^0.32.0"
   }
 }

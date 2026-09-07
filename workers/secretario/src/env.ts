@@ -57,6 +57,8 @@ export interface Env {
   REMIND_MINUTES?: string;
   /** Hora local HH:MM del repaso de tareas del día sin hora. Por defecto 08:45. */
   TASKS_DIGEST_TIME?: string;
+  /** Excel CRM almacenado en Drive, conservando su ID al sincronizar. */
+  CRM_DRIVE_FILE_ID?: string;
 }
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';

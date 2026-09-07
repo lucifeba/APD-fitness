@@ -97,6 +97,7 @@
         "CHATGPT_RELAY_URL": "https://nuvia-chatgpt-relay.vercel.app/api/responses",
         "REMIND_MINUTES": "15",
         "TASKS_DIGEST_TIME": "08:45"
+        ,"CRM_DRIVE_FILE_ID": "1i1uQSW2t_W9btZR458SEpF1-IXzKiyiB"
       }
     }
   }
