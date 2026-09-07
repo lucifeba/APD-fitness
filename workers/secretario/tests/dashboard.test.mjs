@@ -14,8 +14,11 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  const html=await page({BRAND_NAME:'Aravitas'},appShell('info@apdsport.com')).text();
  const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
  assert.doesNotThrow(()=>new Script(script));
- assert.ok(html.includes('Borrador de correo'));
+ assert.ok(html.includes('Redactor de correo'));
  assert.ok(html.includes('Cuadro de mando'));
  assert.ok(html.includes('Aravitas'));
  assert.ok(!html.includes('Nuvia'));
+ assert.ok(html.includes('draft-file'));
+ assert.ok(html.includes('knowledge-text'));
+ assert.ok(!html.includes('Transcribir audio'));
 });

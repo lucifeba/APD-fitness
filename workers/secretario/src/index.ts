@@ -5,10 +5,10 @@ import { buildAgenda, renderAgenda } from './agenda';
 import { runAgent } from './agent';
 import { extractText, forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
 import { reindexMemories } from './memory';
-import { chat, forgetChatGPTCache, listModels, probeProviders } from './router';
+import { ask, chat, forgetChatGPTCache, listModels, probeProviders } from './router';
 import { chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
 import { audit } from './db';
-import { resolveDay, uid } from './util';
+import { clip, resolveDay, safeJson, uid } from './util';
 import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
@@ -142,6 +142,21 @@ export default {
           await audit(env, null, 'panel_draft', { email, draftId: draft.id });
           return json({ ok: true, draft });
         }
+        if (url.pathname === '/api/draft/generate' && req.method === 'POST') {
+          if (!email) return json({error:'Inicia sesión con Google.'},401);
+          const form=await req.formData(),idea=String(form.get('idea')||'').trim(),file=form.get('file');
+          if(!idea||idea.length>12000)return json({error:'Escribe una idea de hasta 12.000 caracteres.'},400);
+          let source='';let fileName='';
+          if(file&&typeof file!=='string'){
+            if(file.size>20*1024*1024)return json({error:'El archivo de apoyo no puede superar 20 MB.'},400);
+            fileName=file.name;source=(await extractText(env,file.name,file.type,await file.arrayBuffer())).text;
+          }
+          const raw=await ask(env,'fast','Redactas correos profesionales en español de España para Araceli Delgado, Área Manager farmacéutica. Devuelve exclusivamente JSON válido con esta forma: {"subject":"asunto breve","body":"correo completo"}. Mantén un tono cercano, claro y profesional. No inventes datos. El cuerpo debe estar listo para enviar y no debe incluir el asunto.',`Idea de Araceli:\n${idea}${source?`\n\nArchivo de apoyo (${fileName}):\n${clip(source,16000)}`:''}`,1400);
+          const draft=safeJson<{subject?:string;body?:string}>(raw,{});const subject=String(draft.subject||'').replace(/[\r\n]+/g,' ').trim(),body=String(draft.body||'').trim();
+          if(!subject||!body)return json({error:'No se ha podido estructurar el borrador. Vuelve a intentarlo.'},502);
+          await audit(env,null,'panel_draft_generate',{email,file:fileName||null,ideaCharacters:idea.length});
+          return json({ok:true,subject,body,fileName:fileName||null});
+        }
         if (url.pathname === '/api/transcribe' && req.method === 'POST') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
           const form=await req.formData();const file=form.get('file');
@@ -157,11 +172,19 @@ export default {
         if (url.pathname === '/api/knowledge/upload' && req.method === 'POST') {
           const form = await req.formData();
           const file = form.get('file');
-          if (!file || typeof file === 'string' || file.size > 10 * 1024 * 1024) return json({ ok: false, error: 'Adjunta un documento de hasta 10 MB.' }, 400);
+          if (!file || typeof file === 'string' || file.size > 20 * 1024 * 1024) return json({ ok: false, error: 'Adjunta un documento de hasta 20 MB.' }, 400);
           const extracted = await extractText(env, file.name, file.type, await file.arrayBuffer());
           if (!extracted.text.trim()) return json({ ok: false, error: 'No se ha podido extraer texto del documento.' }, 400);
           const document = await ingestDocument(env, { title: file.name, text: extracted.text, source: 'web', mime: file.type });
           return json({ ok: true, document });
+        }
+        if (url.pathname === '/api/knowledge/text' && req.method === 'POST') {
+          if(!email)return json({error:'Inicia sesión con Google.'},401);
+          const body=await req.json<{title?:unknown;text?:unknown}>();
+          if(typeof body.title!=='string'||typeof body.text!=='string'||!body.title.trim()||!body.text.trim()||body.title.length>200||body.text.length>100000)return json({error:'Escribe un título y un contenido de hasta 100.000 caracteres.'},400);
+          const document=await ingestDocument(env,{title:body.title.trim(),text:body.text.trim(),source:'web-text',mime:'text/plain'});
+          await audit(env,null,'panel_knowledge_text',{email,documentId:document.id,characters:body.text.length});
+          return json({ok:true,document});
         }
         if (url.pathname === '/api/planning/preview' && req.method === 'POST') {
           try { return json({ ok: true, proposal: proposeAccompaniments(await req.json<PlanningInput>()) }); }

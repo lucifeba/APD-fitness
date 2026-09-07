@@ -4,11 +4,11 @@ import { ask, embed } from './router';
 import { clip, htmlToText, now, safeJson, uid } from './util';
 
 /** Formatos que el conversor de Workers AI entiende. Imágenes aparte (usan modelos de visión). */
-const CONVERTIBLE = /pdf|msword|wordprocessingml|spreadsheetml|ms-excel|opendocument|apple\.numbers|text\/html|xml|csv/i;
+const CONVERTIBLE = /pdf|msword|wordprocessingml|spreadsheetml|ms-excel|opendocument|apple\.|vnd\.apple|text\/html|xml|csv/i;
 const TEXT_LIKE = /^text\/|json|csv|xml|markdown|yaml|x-sh|javascript|typescript/i;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|yaml|yml|log|ts|js|py|html?|sql|ini|toml|env|sh|srt|vtt)$/i;
-const CONVERT_EXT = /\.(pdf|docx?|xlsx?|xlsm|xlsb|ods|odt|numbers|htm|html|xml|csv)$/i;
-const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|svg)$/i;
+const CONVERT_EXT = /\.(pdf|docx?|xlsx?|xlsm|xlsb|ods|odt|numbers|pages|rtf|htm|html|xml|csv)$/i;
+const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|svg|heic|heif)$/i;
 
 export const MAX_DOC_CHARS = 400_000;
 
