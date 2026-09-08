@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 import { Script } from 'node:vm';
 import ts from 'typescript';
 const source=readFileSync(new URL('../src/dashboard.ts',import.meta.url),'utf8');
-const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022}}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
+const planningSource=readFileSync(new URL('../src/planningUi.ts',import.meta.url),'utf8');
+const planningJs=ts.transpileModule(planningSource,{compilerOptions:{module:ts.ModuleKind.ES2022}}).outputText.replace(/export /g,'');
+const js=planningJs+'\n'+ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022}}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
 const {page,appShell}=new Function(js+';return {page,appShell}')();
 test('programming controls only appear for administrator',()=>{
  assert.ok(appShell('info@apdsport.com').includes('id="programming"'));
@@ -30,4 +32,10 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(html.includes('Guardar correo completo en Gmail'));
  assert.ok(html.includes('knowledge-text'));
  assert.ok(!html.includes('Transcribir audio'));
+ assert.ok(html.includes('Planificación mensual inteligente'));
+ assert.ok(html.includes('planning-file'));
+ assert.ok(html.includes('Previsualización editable'));
+ assert.ok(html.includes('Aprobar y crear eventos'));
+ assert.ok(script.includes('dropPlanningVisit'));
+ assert.ok(script.includes('dirección, clasificación y ruta'));
 });

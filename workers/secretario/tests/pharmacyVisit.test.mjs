@@ -18,3 +18,9 @@ test('missing client fields prevent event creation',()=>{
 test('invalid dates are rejected',()=>{
  assert.throws(()=>pharmacyVisitEvent({...visit,date:'2026-02-30'},'planning'));
 });
+test('creates a timed visit when the reviewed proposal includes a time',()=>{
+ const event=pharmacyVisitEvent({...visit,time:'10:30',durationMinutes:75},'planning');
+ assert.equal(event.start,'2026-12-31T10:30:00');
+ assert.equal(event.end,'2026-12-31T11:45:00');
+ assert.ok(event.description.includes('10:30'));
+});

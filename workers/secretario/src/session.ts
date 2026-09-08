@@ -15,6 +15,7 @@ import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, ty
 import { buildAgenda, renderAgenda } from './agenda';
 import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
 import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
+import { importPlanningSource, telegramPlanningSummary } from './planningStore';
 
 interface State {
   history: ChatMessage[];
@@ -153,6 +154,12 @@ export class SecretarioSession implements DurableObject {
             const result = await importSalesDashboard(this.env, bytes, name, 'telegram', String(msg.from?.username || msg.from?.id || chatId));
             parts.push(`[${telegramDashboardSummary(result)}]`);
             return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind };
+          }
+          if (/planificaci[oó]n|planning|delegad/i.test(name) && /\.xlsx$/i.test(name)) {
+            const explicit=`${msg.caption||''} ${name}`.match(/(20\d{2})[-_ ](0?[1-9]|1[0-2])/),today=new Intl.DateTimeFormat('en-CA',{timeZone:this.env.TIMEZONE||'Europe/Madrid',year:'numeric',month:'2-digit'}).format(new Date()),month=explicit?`${explicit[1]}-${String(Number(explicit[2])).padStart(2,'0')}`:today;
+            const result=await importPlanningSource(this.env,bytes,name,month,'telegram',String(msg.from?.username||msg.from?.id||chatId));
+            parts.push(`[${telegramPlanningSummary(result)}]`);
+            return {chatId,messageId:msg.message_id,text:parts.join('\n'),kind};
           }
           const { text, how } = await extractText(this.env, name, d.mime_type, bytes);
           const doc = await ingestDocument(this.env, { title: name.replace(/\.[a-z0-9]+$/i, ''), text, source: 'telegram', mime: d.mime_type });

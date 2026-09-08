@@ -13,7 +13,7 @@ import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCal
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 import { proposeAccompaniments, type PlanningInput } from './planning';
-import { decideProposal, listProposals, saveProposal } from './planningStore';
+import { createProposalFromSource, decideProposal, importPlanningSource, listPlanningSources, listProposals, planningAvailability, saveProposal, syncManualPlanningEvents, updateProposal } from './planningStore';
 import { crmApi, importCrmExcel, syncCrmExcel } from './crm';
 import { transcribe } from './media';
 import { salesDashboardApi } from './salesDashboard';
@@ -230,12 +230,30 @@ o, si de verdad necesitas aclaraciones:
           try { return json({ ok: true, proposal: proposeAccompaniments(await req.json<PlanningInput>()) }); }
           catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : 'Planificación inválida' }, 400); }
         }
+        if(url.pathname==='/api/planning/import'&&req.method==='POST'){
+          if(!email||email.toLowerCase()!==env.OWNER_EMAIL?.toLowerCase())return json({error:'Solo la propietaria puede importar la planificación.'},403);
+          try{const form=await req.formData(),file=form.get('file'),month=String(form.get('month')||'');if(!file||typeof file==='string'||file.size>20*1024*1024||!file.name.toLowerCase().endsWith('.xlsx'))return json({error:'Adjunta un XLSX de hasta 20 MB.'},400);return json({ok:true,source:await importPlanningSource(env,await file.arrayBuffer(),file.name,month,'web',email)});}
+          catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo analizar la planificación'},400);}
+        }
+        if(url.pathname==='/api/planning/sources'&&req.method==='GET'){
+          if(!email)return json({error:'Inicia sesión con Google.'},401);
+          return json({ok:true,sources:await listPlanningSources(env,url.searchParams.get('month')||'')});
+        }
+        if(url.pathname==='/api/planning/availability'&&req.method==='GET'){
+          if(!email)return json({error:'Inicia sesión con Google.'},401);
+          try{return json({ok:true,availability:await planningAvailability(env,url.searchParams.get('month')||'')});}
+          catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo consultar el calendario'},400);}
+        }
         if (url.pathname === '/api/planning/proposals') {
           if (!email) return json({ ok: false, error: 'Inicia sesión con Google.' }, 401);
           if (req.method === 'GET') return json({ ok: true, proposals: await listProposals(env) });
           if (req.method === 'POST') {
-            try { return json({ ok: true, proposal: await saveProposal(env, await req.json<PlanningInput>(), email) }); }
+            try { const body=await req.json<any>();return json({ ok: true, proposal: body.sourceId?await createProposalFromSource(env,body,email):await saveProposal(env,body as PlanningInput,email) }); }
             catch (e) { return json({ ok: false, error: e instanceof Error ? e.message : 'Propuesta inválida' }, 400); }
+          }
+          if(req.method==='PATCH'){
+            try{const body=await req.json<any>();if(typeof body.id!=='string')return json({error:'Propuesta inválida'},400);return json({ok:true,result:await updateProposal(env,body.id,body.selected,Boolean(body.flexible),email)});}
+            catch(e){return json({ok:false,error:e instanceof Error?e.message:'No se pudo editar la propuesta'},400);}
           }
         }
         if (url.pathname === '/api/planning/decision' && req.method === 'POST') {
@@ -412,6 +430,9 @@ o, si de verdad necesitas aclaraciones:
   async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const owner = await ownerChatId(env);
     if (!owner) return;
-    ctx.waitUntil(sessionFor(env, owner).fetch('https://session/heartbeat', { method: 'POST' }).catch((e) => console.error('heartbeat', e)));
+    ctx.waitUntil(Promise.all([
+      sessionFor(env, owner).fetch('https://session/heartbeat', { method: 'POST' }).catch((e) => console.error('heartbeat', e)),
+      syncManualPlanningEvents(env).catch((e)=>console.error('calendar crm sync',e)),
+    ]).then(()=>undefined));
   },
 };

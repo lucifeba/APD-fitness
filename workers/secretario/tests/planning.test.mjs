@@ -23,3 +23,8 @@ test('rejects invalid calendar dates and non-Monday anchor',()=>{
  assert.throws(()=>proposeAccompaniments({...base,anchorMonday:'2026-09-01',routes:[]}));
  assert.throws(()=>proposeAccompaniments({...base,routes:[row('2026-09-31','Ana')]}));
 });
+test('excludes days occupied in the manager calendar',()=>{
+ const result=proposeAccompaniments({...base,unavailableDates:['2026-09-01'],routes:[row('2026-09-01','Ana'),row('2026-09-02','Bea')]});
+ assert.deepEqual(result.selected.map(r=>r.date),['2026-09-02']);
+ assert.ok(result.missing.some(x=>x.includes('ocupado')));
+});

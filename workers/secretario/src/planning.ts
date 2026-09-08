@@ -1,6 +1,6 @@
 /** Deterministic accompaniment proposals. Never writes calendars. */
 export type Region = 'Madrid' | 'Aragón';
-export interface PlanningPharmacy { name:string; address:string; classification:string; clientId?:string; notes?:string }
+export interface PlanningPharmacy { name:string; address:string; classification:string; clientId?:string; notes?:string; time?:string; durationMinutes?:number }
 export interface RouteDay {
   date: string;
   delegate: string;
@@ -14,6 +14,7 @@ export interface PlanningInput {
   anchorRegion: Region;
   routes: RouteDay[];
   history: RouteDay[];
+  unavailableDates?: string[];
 }
 const DAY = 86400000;
 export const pharmacyName=(p:string|PlanningPharmacy)=>typeof p==='string'?p:p.name;
@@ -29,6 +30,8 @@ export function proposeAccompaniments(input: PlanningInput) {
   if (new Date(anchor).getUTCDay() !== 1) throw new Error('La fecha de referencia debe ser un lunes.');
   if (!['Madrid', 'Aragón'].includes(input.anchorRegion)) throw new Error('Zona de referencia inválida.');
   if (!Array.isArray(input.routes) || !Array.isArray(input.history) || input.routes.length > 5000 || input.history.length > 5000) throw new Error('Listado de rutas inválido.');
+  const unavailable=new Set(input.unavailableDates||[]);
+  for(const date of unavailable)dateMs(date);
   for (const row of [...input.routes, ...input.history]) {
     dateMs(row.date);
     if (!row.delegate?.trim() || !row.route?.trim() || !['Madrid', 'Aragón'].includes(row.region) || !Array.isArray(row.pharmacies) || !row.pharmacies.length || row.pharmacies.some(p => !pharmacyName(p)?.trim())) throw new Error('Cada ruta necesita fecha, delegado, zona y farmacias.');
@@ -49,6 +52,7 @@ export function proposeAccompaniments(input: PlanningInput) {
     const date = day.toISOString().slice(0, 10);
     const week = Math.floor((ms - anchor) / (7 * DAY));
     const region = ((week % 2) + 2) % 2 === 0 ? input.anchorRegion : input.anchorRegion === 'Madrid' ? 'Aragón' : 'Madrid';
+    if(unavailable.has(date)){missing.push(`${date} · ${region}: ocupado en tu calendario`);continue;}
     const options = input.routes.filter(r => r.date === date && r.region === region).sort((a,b) => score(a) - score(b) || a.delegate.localeCompare(b.delegate) || a.route.localeCompare(b.route));
     if (!options.length) { missing.push(`${date} · ${region}: no hay ruta de origen disponible`); continue; }
     selected.push(options[0]);
