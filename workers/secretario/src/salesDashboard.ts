@@ -1145,9 +1145,9 @@ async function dashboardData(env: Env, url: URL) {
       .bind(...args)
       .all<any>(),
     env.DB.prepare(
-      `SELECT p.*,d.months_json,d.quarters_json,d.status,d.current_avg,d.previous_avg,d.change_pct,d.total_units FROM sales_dashboard_products p JOIN sales_dashboard_product_details d ON d.import_id=p.import_id AND d.national_code=p.national_code WHERE p.import_id=? AND (?='' OR lower(p.brand)=lower(?) OR lower(p.presentation) LIKE '%'||lower(?)||'%') AND (?='' OR lower(p.presentation) LIKE '%'||lower(?)||'%' OR lower(p.brand) LIKE '%'||lower(?)||'%') ORDER BY ABS(COALESCE(d.change_pct,0)) DESC LIMIT 1000`,
+      `SELECT p.*,d.months_json,d.quarters_json,d.status,d.current_avg,d.previous_avg,d.change_pct,d.total_units FROM sales_dashboard_products p JOIN sales_dashboard_product_details d ON d.import_id=p.import_id AND d.national_code=p.national_code WHERE p.import_id=? AND (?='' OR lower(p.brand) LIKE '%'||lower(?)||'%' OR lower(p.presentation) LIKE '%'||lower(?)||'%') AND (?='' OR lower(p.presentation) LIKE '%'||lower(?)||'%' OR lower(p.brand) LIKE '%'||lower(?)||'%' OR lower(p.national_code) LIKE '%'||lower(?)||'%') ORDER BY ABS(COALESCE(d.change_pct,0)) DESC LIMIT 1000`,
     )
-      .bind(id, molecule, molecule, molecule, search, search, search)
+      .bind(id, molecule, molecule, molecule, search, search, search, search)
       .all<any>(),
     env.DB.prepare(
       "SELECT DISTINCT brand FROM sales_dashboard_products WHERE import_id=? AND brand<>'' ORDER BY brand",
@@ -1188,7 +1188,9 @@ async function dashboardData(env: Env, url: URL) {
     clientProducts = parseJson<any[]>(cp?.products_json, []).filter(
       (p) =>
         (!molecule ||
-          String(p.brand || "").toLowerCase() === molecule.toLowerCase() ||
+          String(p.brand || "")
+            .toLowerCase()
+            .includes(molecule.toLowerCase()) ||
           String(p.presentation || "")
             .toLowerCase()
             .includes(molecule.toLowerCase())) &&
@@ -1237,7 +1239,7 @@ async function dashboardData(env: Env, url: URL) {
       allMoleculeProducts.filter((x) => x.status === status).length,
     ]),
   ),
-    productAlerts = allMoleculeProducts
+    productAlerts = moleculeProducts
       .filter((x) => x.status === "Molécula perdida")
       .sort(
         (a, b) =>

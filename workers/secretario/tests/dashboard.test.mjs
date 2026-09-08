@@ -59,6 +59,14 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('Proyección Q'));
  assert.ok(script.includes('monthsWithoutPurchase'));
  assert.ok(!html.includes('Promedio anterior'));
+ assert.ok(script.includes('Buscar molécula'));
+ assert.ok(script.includes('product-inline-filters'));
+ assert.ok(script.includes('openMoleculeTrend'));
+ assert.ok(script.includes('molecule-detail'));
+ assert.ok(script.includes("Number(n).toLocaleString('es-ES')+' uds','line'"));
+ assert.ok(script.includes('moleculeTable(productMonths,moleculeRows)'));
+ assert.ok(!script.includes('moleculeRows.slice(0,300)'));
+ assert.ok(script.includes('No hay moléculas que coincidan con estos filtros'));
  assert.ok(script.includes('Sincronizar todo ahora'));
  assert.ok(script.includes('/api/crm/synchronize'));
  assert.ok(script.includes('Panel operativo de visitas y acompañamientos'));
