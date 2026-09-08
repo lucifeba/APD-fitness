@@ -5,8 +5,11 @@ import { Script } from 'node:vm';
 import ts from 'typescript';
 const source=readFileSync(new URL('../src/dashboard.ts',import.meta.url),'utf8');
 const planningSource=readFileSync(new URL('../src/planningUi.ts',import.meta.url),'utf8');
-const planningJs=ts.transpileModule(planningSource,{compilerOptions:{module:ts.ModuleKind.ES2022}}).outputText.replace(/export /g,'');
-const js=planningJs+'\n'+ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022}}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
+const compilerOptions={module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022};
+const planningJs=ts.transpileModule(planningSource,{compilerOptions}).outputText.replace(/export /g,'');
+const salesUiSource=readFileSync(new URL('../src/salesUi.ts',import.meta.url),'utf8');
+const salesUiJs=ts.transpileModule(salesUiSource,{compilerOptions}).outputText.replace(/export /g,'');
+const js=planningJs+'\n'+salesUiJs+'\n'+ts.transpileModule(source,{compilerOptions}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
 const {page,appShell}=new Function(js+';return {page,appShell}')();
 test('programming controls only appear for administrator',()=>{
  assert.ok(appShell('info@apdsport.com').includes('id="programming"'));
@@ -38,4 +41,7 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(html.includes('Aprobar y crear eventos'));
  assert.ok(script.includes('dropPlanningVisit'));
  assert.ok(script.includes('dirección, clasificación y ruta'));
+ assert.ok(script.includes('sales-client-search'));
+ assert.ok(script.includes("localStorage.getItem('aravitas-sales-chart')||'line'"));
+ assert.ok(script.includes('VDL, clasificación o delegado'));
 });
