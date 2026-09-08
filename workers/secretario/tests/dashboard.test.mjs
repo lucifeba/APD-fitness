@@ -44,4 +44,8 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('sales-client-search'));
  assert.ok(script.includes("localStorage.getItem('aravitas-sales-chart')||'line'"));
  assert.ok(script.includes('VDL, clasificación o delegado'));
+ assert.ok(script.includes('Descargar aperturas Excel'));
+ assert.ok(script.includes('Falta para igualar YTD'));
+ assert.ok(script.includes('monthName(j.latestMonth)'));
+ assert.ok(script.includes("/^decrecimiento/i"));
 });

@@ -17,6 +17,7 @@ import { createProposalFromSource, decideProposal, importPlanningSource, listPla
 import { crmApi, importCrmExcel, syncCrmExcel } from './crm';
 import { transcribe } from './media';
 import { salesDashboardApi } from './salesDashboard';
+import { salesAnalyticsApi } from './salesAnalytics';
 
 export { SecretarioSession };
 
@@ -159,6 +160,10 @@ export default {
         if (url.pathname === '/api/sales-dashboard' || url.pathname === '/api/sales-dashboard/report.pdf') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
           return salesDashboardApi(req,env,email);
+        }
+        if (url.pathname === '/api/sales-dashboard/analytics' || url.pathname === '/api/sales-dashboard/openings.xlsx') {
+          if (!email) return json({error:'Inicia sesión con Google.'},401);
+          return salesAnalyticsApi(req,env);
         }
         if (url.pathname === '/api/draft' && req.method === 'POST') {
           const b = await req.json<{ to?: string; subject?: string; body?: string }>();
