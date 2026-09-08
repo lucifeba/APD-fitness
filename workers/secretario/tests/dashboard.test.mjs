@@ -49,8 +49,16 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('Descargar aperturas Excel'));
  assert.ok(script.includes('Falta para igualar YTD'));
  assert.ok(script.includes('monthName(j.latestMonth)'));
- assert.ok(script.includes("/^decrecimiento/i"));
+ assert.ok(script.includes("/decrecimiento|descenso/i"));
  assert.ok(script.includes('sales-ytd-status'));
+ assert.ok(html.includes('Buscar por nombre'));
+ assert.ok(html.includes('sales-product-evolution'));
+ assert.ok(html.includes('sales-product-inactive'));
+ assert.ok(html.includes('Molécula perdida'));
+ assert.ok(html.includes('Aumento de compra'));
+ assert.ok(script.includes('Proyección Q'));
+ assert.ok(script.includes('monthsWithoutPurchase'));
+ assert.ok(!html.includes('Promedio anterior'));
  assert.ok(script.includes('Sincronizar todo ahora'));
  assert.ok(script.includes('/api/crm/synchronize'));
  assert.ok(script.includes('Panel operativo de visitas y acompañamientos'));

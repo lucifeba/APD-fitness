@@ -1,43 +1,65 @@
-import { getSetting } from './db';
-import type { Env } from './env';
-import { googleConfigured } from './google';
-import { countDocuments, listDocuments } from './knowledge';
-import { countMemories } from './memory';
-import { chatgptConnected, VERIFICATION_URL } from './chatgpt';
-import { forgetOpenAIKeyCache, probeProviders, resolveOpenAIKey } from './router';
-import { vaultDelete, vaultList, vaultSet } from './tools/autonomyTools';
-import { localTime, today } from './util';
-import { PLANNING_JS } from './planningUi';
-import { SALES_UI_JS } from './salesUi';
-import { CRM_UI_JS } from './crmUi';
+import { getSetting } from "./db";
+import type { Env } from "./env";
+import { googleConfigured } from "./google";
+import { countDocuments, listDocuments } from "./knowledge";
+import { countMemories } from "./memory";
+import { chatgptConnected, VERIFICATION_URL } from "./chatgpt";
+import {
+  forgetOpenAIKeyCache,
+  probeProviders,
+  resolveOpenAIKey,
+} from "./router";
+import { vaultDelete, vaultList, vaultSet } from "./tools/autonomyTools";
+import { localTime, today } from "./util";
+import { PLANNING_JS } from "./planningUi";
+import { SALES_UI_JS } from "./salesUi";
+import { CRM_UI_JS } from "./crmUi";
 
 /**
  * Panel web del agente: estado, uso, conocimiento, herramientas y conexión de OpenAI.
  * Acceso con "Entrar con Google" restringido al propietario (OWNER_EMAIL) y a ADMIN_EMAILS.
  */
 
-const COOKIE = 'nv_sess';
+const COOKIE = "nv_sess";
 const SESSION_DAYS = 30;
 
 // ---------- Sesión firmada (HMAC con ADMIN_TOKEN) ----------
 
 async function hmac(env: Env, data: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(`panel:${env.ADMIN_TOKEN || env.TELEGRAM_BOT_TOKEN}`), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
-  return btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(
+      `panel:${env.ADMIN_TOKEN || env.TELEGRAM_BOT_TOKEN}`,
+    ),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(data),
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 async function makeSession(env: Env, email: string): Promise<string> {
   const exp = Date.now() + SESSION_DAYS * 86_400_000;
-  const payload = `${btoa(email).replace(/=+$/, '')}.${exp}`;
+  const payload = `${btoa(email).replace(/=+$/, "")}.${exp}`;
   return `${payload}.${await hmac(env, payload)}`;
 }
 
-export async function sessionEmail(req: Request, env: Env): Promise<string | null> {
-  const cookie = req.headers.get('cookie') || '';
+export async function sessionEmail(
+  req: Request,
+  env: Env,
+): Promise<string | null> {
+  const cookie = req.headers.get("cookie") || "";
   const m = cookie.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`));
   if (!m) return null;
-  const [b64, exp, sig] = m[1].split('.');
+  const [b64, exp, sig] = m[1].split(".");
   if (!b64 || !exp || !sig || Number(exp) < Date.now()) return null;
   if ((await hmac(env, `${b64}.${exp}`)) !== sig) return null;
   try {
@@ -50,144 +72,289 @@ export async function sessionEmail(req: Request, env: Env): Promise<string | nul
 
 function allowedEmail(env: Env, email: string): boolean {
   const e = email.trim().toLowerCase();
-  const allowed = [env.OWNER_EMAIL || '', ...(env.ADMIN_EMAILS || '').split(',')].map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const allowed = [
+    env.OWNER_EMAIL || "",
+    ...(env.ADMIN_EMAILS || "").split(","),
+  ]
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
   return allowed.includes(e);
 }
 
-const cookieHeader = (value: string, maxAge: number) => `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+const cookieHeader = (value: string, maxAge: number) =>
+  `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 
 // ---------- OAuth de Google para entrar (solo identidad) ----------
 
 export function loginRedirect(env: Env, state: string): Response {
   const p = new URLSearchParams({
-    client_id: env.GOOGLE_CLIENT_ID || '',
+    client_id: env.GOOGLE_CLIENT_ID || "",
     redirect_uri: `${env.PUBLIC_URL}/auth/google/callback`,
-    response_type: 'code',
-    scope: 'openid email profile',
+    response_type: "code",
+    scope: "openid email profile",
     state,
-    prompt: 'select_account',
-    login_hint: env.OWNER_EMAIL || '',
+    prompt: "select_account",
+    login_hint: env.OWNER_EMAIL || "",
   });
   return new Response(null, {
     status: 302,
-    headers: { location: `https://accounts.google.com/o/oauth2/v2/auth?${p}`, 'set-cookie': `nv_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600` },
+    headers: {
+      location: `https://accounts.google.com/o/oauth2/v2/auth?${p}`,
+      "set-cookie": `nv_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+    },
   });
 }
 
 export async function loginCallback(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
-  const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-  const cookieState = (req.headers.get('cookie') || '').match(/(?:^|;\s*)nv_state=([^;]+)/)?.[1];
-  if (!code || !state || state !== cookieState) return page(env, errorCard('El enlace de acceso no es válido o ha caducado. Vuelve a intentarlo.'), 400);
-  const r = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const cookieState = (req.headers.get("cookie") || "").match(
+    /(?:^|;\s*)nv_state=([^;]+)/,
+  )?.[1];
+  if (!code || !state || state !== cookieState)
+    return page(
+      env,
+      errorCard(
+        "El enlace de acceso no es válido o ha caducado. Vuelve a intentarlo.",
+      ),
+      400,
+    );
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: env.GOOGLE_CLIENT_ID || '',
-      client_secret: env.GOOGLE_CLIENT_SECRET || '',
+      client_id: env.GOOGLE_CLIENT_ID || "",
+      client_secret: env.GOOGLE_CLIENT_SECRET || "",
       redirect_uri: `${env.PUBLIC_URL}/auth/google/callback`,
-      grant_type: 'authorization_code',
+      grant_type: "authorization_code",
     }),
   });
   const j = await r.json<any>();
-  if (!r.ok || !j.access_token) return page(env, errorCard('Google no ha devuelto un acceso válido.'), 400);
-  const u = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { authorization: `Bearer ${j.access_token}` } });
+  if (!r.ok || !j.access_token)
+    return page(env, errorCard("Google no ha devuelto un acceso válido."), 400);
+  const u = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { authorization: `Bearer ${j.access_token}` },
+  });
   const info = await u.json<any>();
-  const email = String(info.email || '').toLowerCase();
-  if (!u.ok || info.email_verified !== true || !email || !allowedEmail(env, email)) return page(env, errorCard(`La cuenta ${email || 'usada'} no tiene acceso a este panel. Entra con ${env.OWNER_EMAIL}.`), 403);
+  const email = String(info.email || "").toLowerCase();
+  if (
+    !u.ok ||
+    info.email_verified !== true ||
+    !email ||
+    !allowedEmail(env, email)
+  )
+    return page(
+      env,
+      errorCard(
+        `La cuenta ${email || "usada"} no tiene acceso a este panel. Entra con ${env.OWNER_EMAIL}.`,
+      ),
+      403,
+    );
   const sess = await makeSession(env, email);
-  return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': cookieHeader(sess, SESSION_DAYS * 86_400) } });
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: "/",
+      "set-cookie": cookieHeader(sess, SESSION_DAYS * 86_400),
+    },
+  });
 }
 
 export function logout(): Response {
-  return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': cookieHeader('', 0) } });
+  return new Response(null, {
+    status: 302,
+    headers: { location: "/", "set-cookie": cookieHeader("", 0) },
+  });
 }
 
 // ---------- API del panel ----------
 
 export async function statusJson(env: Env): Promise<Record<string, unknown>> {
-  const [usage, nDocs, docs, nMem, tools, secrets, audit, selfPrompt, ownerChat, googleOk, openaiKey, lastEpisode] = await Promise.all([
-    env.DB.prepare('SELECT provider,model,calls,input_tokens,output_tokens,neurons,errors FROM usage_daily WHERE day=? ORDER BY calls DESC')
+  const [
+    usage,
+    nDocs,
+    docs,
+    nMem,
+    tools,
+    secrets,
+    audit,
+    selfPrompt,
+    ownerChat,
+    googleOk,
+    openaiKey,
+    lastEpisode,
+  ] = await Promise.all([
+    env.DB.prepare(
+      "SELECT provider,model,calls,input_tokens,output_tokens,neurons,errors FROM usage_daily WHERE day=? ORDER BY calls DESC",
+    )
       .bind(today())
       .all<any>()
       .then((r) => r.results),
     countDocuments(env),
     listDocuments(env, 8),
     countMemories(env),
-    env.DB.prepare("SELECT name,description,version,uses FROM dyn_tools WHERE status='active' ORDER BY uses DESC")
+    env.DB.prepare(
+      "SELECT name,description,version,uses FROM dyn_tools WHERE status='active' ORDER BY uses DESC",
+    )
       .all<any>()
       .then((r) => r.results),
     vaultList(env),
-    env.DB.prepare('SELECT action,detail,confirmed,created_at FROM audit_log ORDER BY id DESC LIMIT 12')
+    env.DB.prepare(
+      "SELECT action,detail,confirmed,created_at FROM audit_log ORDER BY id DESC LIMIT 12",
+    )
       .all<any>()
       .then((r) => r.results),
-    getSetting(env, 'self_prompt'),
-    getSetting(env, 'owner_chat_id'),
+    getSetting(env, "self_prompt"),
+    getSetting(env, "owner_chat_id"),
     googleConfigured(env),
     resolveOpenAIKey(env, true),
-    env.DB.prepare('SELECT created_at FROM audit_log ORDER BY id DESC LIMIT 1').first<{ created_at: string }>(),
+    env.DB.prepare(
+      "SELECT created_at FROM audit_log ORDER BY id DESC LIMIT 1",
+    ).first<{ created_at: string }>(),
   ]);
   const gpt = await chatgptConnected(env, true);
-  const neurons = usage.filter((u: any) => u.provider === 'cf').reduce((n: number, u: any) => n + Number(u.neurons || 0), 0);
-  const chain = (env.MODEL_CHAIN_SMART || '')
-    .split(',')
+  const neurons = usage
+    .filter((u: any) => u.provider === "cf")
+    .reduce((n: number, u: any) => n + Number(u.neurons || 0), 0);
+  const chain = (env.MODEL_CHAIN_SMART || "")
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   const keyFor = (p: string) =>
-    p === 'cf' ? true : p === 'gemini' ? Boolean(env.GEMINI_API_KEY) : p === 'groq' ? Boolean(env.GROQ_API_KEY) : p === 'openrouter' ? Boolean(env.OPENROUTER_API_KEY) : p === 'openai' ? Boolean(openaiKey) : p === 'chatgpt' ? Boolean(gpt) : false;
+    p === "cf"
+      ? true
+      : p === "gemini"
+        ? Boolean(env.GEMINI_API_KEY)
+        : p === "groq"
+          ? Boolean(env.GROQ_API_KEY)
+          : p === "openrouter"
+            ? Boolean(env.OPENROUTER_API_KEY)
+            : p === "openai"
+              ? Boolean(openaiKey)
+              : p === "chatgpt"
+                ? Boolean(gpt)
+                : false;
   return {
-    brand: { name: 'Aravitas', tagline: env.BRAND_TAGLINE || 'Tu secretaria digital' },
-    owner: { name: env.OWNER_NAME, email: env.OWNER_EMAIL, tz: env.TIMEZONE || 'Europe/Madrid', localTime: localTime(env.TIMEZONE || 'Europe/Madrid') },
-    bot: { name: 'Aravitas', paired: Boolean(env.OWNER_CHAT_ID || ownerChat), publicUrl: env.PUBLIC_URL },
-    google: { connected: googleOk, configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) },
-    openai: { connected: Boolean(openaiKey), fromSecret: Boolean(env.OPENAI_API_KEY) },
-    chatgpt: { connected: Boolean(gpt), email: gpt?.email || '', verificationUrl: VERIFICATION_URL },
-    brains: chain.map((c) => ({ id: c, provider: c.split(':')[0], model: c.slice(c.indexOf(':') + 1), configured: keyFor(c.split(':')[0]) })),
-    usage: { rows: usage, neurons: Math.round(neurons), budget: Number(env.DAILY_NEURON_BUDGET || 9000) },
-    knowledge: { count: nDocs, recent: docs.map((d) => ({ id: d.id, title: d.title, chunks: d.chunks, date: d.created_at.slice(0, 10), summary: (d.summary || '').slice(0, 220) })) },
+    brand: {
+      name: "Aravitas",
+      tagline: env.BRAND_TAGLINE || "Tu secretaria digital",
+    },
+    owner: {
+      name: env.OWNER_NAME,
+      email: env.OWNER_EMAIL,
+      tz: env.TIMEZONE || "Europe/Madrid",
+      localTime: localTime(env.TIMEZONE || "Europe/Madrid"),
+    },
+    bot: {
+      name: "Aravitas",
+      paired: Boolean(env.OWNER_CHAT_ID || ownerChat),
+      publicUrl: env.PUBLIC_URL,
+    },
+    google: {
+      connected: googleOk,
+      configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+    },
+    openai: {
+      connected: Boolean(openaiKey),
+      fromSecret: Boolean(env.OPENAI_API_KEY),
+    },
+    chatgpt: {
+      connected: Boolean(gpt),
+      email: gpt?.email || "",
+      verificationUrl: VERIFICATION_URL,
+    },
+    brains: chain.map((c) => ({
+      id: c,
+      provider: c.split(":")[0],
+      model: c.slice(c.indexOf(":") + 1),
+      configured: keyFor(c.split(":")[0]),
+    })),
+    usage: {
+      rows: usage,
+      neurons: Math.round(neurons),
+      budget: Number(env.DAILY_NEURON_BUDGET || 9000),
+    },
+    knowledge: {
+      count: nDocs,
+      recent: docs.map((d) => ({
+        id: d.id,
+        title: d.title,
+        chunks: d.chunks,
+        date: d.created_at.slice(0, 10),
+        summary: (d.summary || "").slice(0, 220),
+      })),
+    },
     memory: { count: nMem },
     tools,
     secrets,
-    audit: audit.map((a: any) => ({ action: a.action, detail: String(a.detail || '').slice(0, 160), confirmed: Boolean(a.confirmed), at: a.created_at })),
-    selfPrompt: selfPrompt || '',
-    config: { dailyBrief: env.DAILY_BRIEF || '', quietHours: env.QUIET_HOURS || '', defaultTaskList: env.DEFAULT_TASK_LIST || '', heartbeat: (env.HEARTBEAT_ENABLED ?? 'true') === 'true' },
+    audit: audit.map((a: any) => ({
+      action: a.action,
+      detail: String(a.detail || "").slice(0, 160),
+      confirmed: Boolean(a.confirmed),
+      at: a.created_at,
+    })),
+    selfPrompt: selfPrompt || "",
+    config: {
+      dailyBrief: env.DAILY_BRIEF || "",
+      quietHours: env.QUIET_HOURS || "",
+      defaultTaskList: env.DEFAULT_TASK_LIST || "",
+      heartbeat: (env.HEARTBEAT_ENABLED ?? "true") === "true",
+    },
     lastActivity: lastEpisode?.created_at ?? null,
   };
 }
 
-export async function connectOpenAI(env: Env, key: string): Promise<{ ok: boolean; error?: string; models?: number }> {
+export async function connectOpenAI(
+  env: Env,
+  key: string,
+): Promise<{ ok: boolean; error?: string; models?: number }> {
   const k = key.trim();
-  if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(k)) return { ok: false, error: 'Eso no parece una clave de OpenAI (empiezan por sk-).' };
-  const r = await fetch('https://api.openai.com/v1/models', { headers: { authorization: `Bearer ${k}` } });
-  if (!r.ok) return { ok: false, error: `OpenAI ha rechazado la clave (HTTP ${r.status}).` };
+  if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(k))
+    return {
+      ok: false,
+      error: "Eso no parece una clave de OpenAI (empiezan por sk-).",
+    };
+  const r = await fetch("https://api.openai.com/v1/models", {
+    headers: { authorization: `Bearer ${k}` },
+  });
+  if (!r.ok)
+    return {
+      ok: false,
+      error: `OpenAI ha rechazado la clave (HTTP ${r.status}).`,
+    };
   const j = await r.json<any>();
-  await vaultSet(env, 'OPENAI_API_KEY', k);
+  await vaultSet(env, "OPENAI_API_KEY", k);
   forgetOpenAIKeyCache();
   return { ok: true, models: (j.data ?? []).length };
 }
 
 export async function disconnectOpenAI(env: Env): Promise<void> {
-  await vaultDelete(env, 'OPENAI_API_KEY');
+  await vaultDelete(env, "OPENAI_API_KEY");
   forgetOpenAIKeyCache();
 }
 
 export async function probeJson(env: Env): Promise<unknown> {
-  return probeProviders(env, 'smart');
+  return probeProviders(env, "smart");
 }
 
 // ---------- HTML ----------
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const esc = (s: string) =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 
 function errorCard(msg: string): string {
   return `<section class="card center"><h2>No se ha podido entrar</h2><p class="muted">${esc(msg)}</p><a class="btn" href="/">Volver</a></section>`;
 }
 
 export function page(env: Env, body: string, status = 200): Response {
-  const brand = 'Aravitas';
-  const tagline = esc(env.BRAND_TAGLINE || '');
+  const brand = "Aravitas";
+  const tagline = esc(env.BRAND_TAGLINE || "");
   return new Response(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${brand} · Panel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -198,7 +365,13 @@ export function page(env: Env, body: string, status = 200): Response {
 <main id="app">${body}</main>
 <footer class="foot">${brand} · agente personal en Cloudflare · <span id="clock"></span></footer>
 <script>${JS}\n${PLANNING_JS}\n${SALES_UI_JS}\n${CRM_UI_JS}</script></body></html>`,
-    { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+    {
+      status,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    },
   );
 }
 
@@ -206,14 +379,17 @@ export function landing(env: Env): string {
   return `<section class="hero"><p class="eyebrow">Panel del agente</p><h1>Tu secretaria digital,<br><em>siempre al día</em>.</h1>
 <p class="lead">Estado del bot de Telegram, conexiones con Google y OpenAI, uso de inteligencia artificial, conocimiento aprendido y actividad reciente.</p>
 <a class="btn primary" href="/auth/google">${GOOGLE_ICON} Entrar con Google</a>
-<p class="muted small">Acceso reservado a ${esc(env.OWNER_EMAIL || 'la propietaria')}.</p></section>`;
+<p class="muted small">Acceso reservado a ${esc(env.OWNER_EMAIL || "la propietaria")}.</p></section>`;
 }
 
 /** Páginas legales mínimas que Google exige para publicar la app OAuth. */
-export function legalPage(env: Env, kind: 'privacidad' | 'condiciones'): string {
-  const brand = 'Aravitas';
-  const owner = esc(env.OWNER_EMAIL || '');
-  if (kind === 'privacidad')
+export function legalPage(
+  env: Env,
+  kind: "privacidad" | "condiciones",
+): string {
+  const brand = "Aravitas";
+  const owner = esc(env.OWNER_EMAIL || "");
+  if (kind === "privacidad")
     return `<section class="card"><h2>Política de privacidad</h2>
 <p class="muted">${brand} es un asistente personal de uso privado para una única persona (${owner}). Accede, con autorización expresa de esa persona y mediante OAuth de Google, a su correo, calendario, archivos de Drive y tareas, exclusivamente para ejecutar las órdenes que ella le da por Telegram y preparar sus resúmenes de agenda.</p>
 <p class="muted">Los datos se procesan en Cloudflare (Workers, D1 y Vectorize) y no se comparten con terceros ni se usan para publicidad ni para entrenar modelos. Los tokens de acceso se guardan cifrados y pueden revocarse en cualquier momento desde la cuenta de Google (Seguridad → Aplicaciones de terceros) o desconectando el servicio en este panel. El uso de datos de Google cumple la Política de datos de usuario de los servicios de API de Google, incluidos los requisitos de uso limitado.</p>
@@ -224,9 +400,12 @@ export function legalPage(env: Env, kind: 'privacidad' | 'condiciones'): string 
 }
 
 export function appShell(email: string): string {
-  const programming = email.toLowerCase() === 'info@apdsport.com' ? `<details class="card"><summary>Programación del agente · Administrador</summary><p>Estas instrucciones se aplican al agente. Revísalas antes de guardar.</p><textarea id="programming" aria-label="Instrucciones del agente" maxlength="20000" rows="12" style="width:100%"></textarea><p><button class="btn" onclick="loadProgramming()">Cargar instrucciones</button> <button class="btn primary" onclick="saveProgramming()">Guardar instrucciones</button></p><p id="programming-status" role="status"></p></details>` : '';
-  return `<nav class="tabs" aria-label="Secciones"><button class="tab active" data-panel="dashboard" onclick="showPanel('dashboard',this)">Dashboard</button><button class="tab" data-panel="sales" onclick="showPanel('sales',this)">Cuadro de mando</button><button class="tab" data-panel="crm" onclick="showPanel('crm',this)">CRM</button><button class="tab" data-panel="planning" onclick="showPanel('planning',this)">Planificación</button><button class="tab" data-panel="operative" onclick="showPanel('operative',this)">Operativa</button>${programming ? '<button class="tab" data-panel="admin" onclick="showPanel(\'admin\',this)">Programación del agente</button>' : ''}</nav>
-  <div id="panel-sales" hidden><section class="card sales-hero"><div class="section-head"><div><p class="impact-title">GERENTE DE ALTO IMPACTO</p><h2>Inteligencia comercial · Centro 3</h2><p class="muted">Ventas, objetivos, comportamiento de compra, acuerdos, OTC y presentaciones. Sube el Excel aquí o envíalo a Aravitas por Telegram.</p></div><form class="upload-inline" onsubmit="uploadSalesDashboard(event)"><label>Excel semanal<input id="sales-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label><button class="btn primary">Incorporar datos</button></form></div><div class="sales-filters"><label>Histórico<select id="sales-snapshot" onchange="loadSalesDashboard()"></select></label><label>Delegado<select id="sales-delegate" onchange="salesDelegateChanged()"><option value="">Todo el equipo</option></select></label><label class="grow">Farmacia<select id="sales-client" onchange="loadSalesDashboard()"><option value="">Todas las farmacias</option></select></label><label>Trimestre<select id="sales-quarter" onchange="renderSalesDashboard(lastSalesData)"><option value="">Último disponible</option></select></label><label>Gráfico<select id="sales-chart" onchange="renderSalesDashboard(lastSalesData)"><option value="bar">Barras</option><option value="line">Líneas</option><option value="donut">Sectores</option></select></label></div><div class="sales-filters product-filters"><label>Molécula<input id="sales-molecule" list="molecule-list" placeholder="Todas" onchange="loadSalesDashboard()"><datalist id="molecule-list"></datalist></label><label class="grow">Buscar presentación<input id="sales-product-search" type="search" placeholder="Nombre o código nacional" onsearch="loadSalesDashboard()"></label><button class="btn" type="button" onclick="loadSalesDashboard()">Aplicar filtros</button><button class="btn ghost" type="button" onclick="clearSalesFilters()">Limpiar</button><button class="btn primary" type="button" onclick="downloadSalesPdf()">Descargar informe PDF</button></div><p id="sales-status" class="notice" role="status">Cargando indicadores…</p><div id="sales-dashboard"></div></section></div>
+  const programming =
+    email.toLowerCase() === "info@apdsport.com"
+      ? `<details class="card"><summary>Programación del agente · Administrador</summary><p>Estas instrucciones se aplican al agente. Revísalas antes de guardar.</p><textarea id="programming" aria-label="Instrucciones del agente" maxlength="20000" rows="12" style="width:100%"></textarea><p><button class="btn" onclick="loadProgramming()">Cargar instrucciones</button> <button class="btn primary" onclick="saveProgramming()">Guardar instrucciones</button></p><p id="programming-status" role="status"></p></details>`
+      : "";
+  return `<nav class="tabs" aria-label="Secciones"><button class="tab active" data-panel="dashboard" onclick="showPanel('dashboard',this)">Dashboard</button><button class="tab" data-panel="sales" onclick="showPanel('sales',this)">Cuadro de mando</button><button class="tab" data-panel="crm" onclick="showPanel('crm',this)">CRM</button><button class="tab" data-panel="planning" onclick="showPanel('planning',this)">Planificación</button><button class="tab" data-panel="operative" onclick="showPanel('operative',this)">Operativa</button>${programming ? '<button class="tab" data-panel="admin" onclick="showPanel(\'admin\',this)">Programación del agente</button>' : ""}</nav>
+  <div id="panel-sales" hidden><section class="card sales-hero"><div class="section-head"><div><p class="impact-title">GERENTE DE ALTO IMPACTO</p><h2>Inteligencia comercial · Centro 3</h2><p class="muted">Ventas, objetivos, comportamiento de compra, acuerdos, OTC y presentaciones. Sube el Excel aquí o envíalo a Aravitas por Telegram.</p></div><form class="upload-inline" onsubmit="uploadSalesDashboard(event)"><label>Excel semanal<input id="sales-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label><button class="btn primary">Incorporar datos</button></form></div><div class="sales-filters"><label>Histórico<select id="sales-snapshot" onchange="loadSalesDashboard()"></select></label><label>Delegado<select id="sales-delegate" onchange="salesDelegateChanged()"><option value="">Todo el equipo</option></select></label><label class="grow">Farmacia<select id="sales-client" onchange="loadSalesDashboard()"><option value="">Todas las farmacias</option></select></label><label>Trimestre<select id="sales-quarter" onchange="renderSalesDashboard(lastSalesData)"><option value="">Último disponible</option></select></label><label>Gráfico<select id="sales-chart" onchange="renderSalesDashboard(lastSalesData)"><option value="bar">Barras</option><option value="line">Líneas</option><option value="donut">Sectores</option></select></label></div><div class="sales-filters product-filters"><label>Molécula<input id="sales-molecule" list="molecule-list" placeholder="Todas" onchange="loadSalesDashboard()"><datalist id="molecule-list"></datalist></label><label class="grow">Buscar por nombre<input id="sales-product-search" type="search" placeholder="Molécula, presentación o código nacional" onsearch="loadSalesDashboard()"></label><label>Evolución<select id="sales-product-evolution" onchange="loadSalesDashboard()"><option value="">Todas</option><option>Molécula perdida</option><option>Aumento de compra</option><option>Compra estable</option><option>Descenso de compra</option><option>Nueva compra</option></select></label><label>Tiempo sin comprar<select id="sales-product-inactive" onchange="loadSalesDashboard()"><option value="">Cualquiera</option><option value="1">1 mes</option><option value="2">2 meses</option><option value="3">3 meses</option><option value="4">4 meses</option><option value="5">5 meses o más</option></select></label><button class="btn" type="button" onclick="loadSalesDashboard()">Aplicar filtros</button><button class="btn ghost" type="button" onclick="clearSalesFilters()">Limpiar</button><button class="btn primary" type="button" onclick="downloadSalesPdf()">Descargar informe PDF</button></div><p id="sales-status" class="notice" role="status">Cargando indicadores…</p><div id="sales-dashboard"></div></section></div>
   <div id="panel-crm" hidden><section class="card"><div class="section-head"><div><p class="eyebrow">CRM conectado</p><h2>Visitas y acompañamientos</h2><p class="muted">Trabaja desde la aplicación y lleva los cambios al mismo Excel de Drive cuando pulses sincronizar.</p></div><div class="actions"><button class="btn" onclick="importCrm()">Importar Excel</button><button id="crm-sync" class="btn primary" onclick="syncCrm()">Sincronizar CRM Excel</button></div></div><div class="toolbar"><label>Sección <select id="crm-section" onchange="loadCrm()"><option value="visits">Visitas</option><option value="accompaniments">Acompañamientos</option></select></label><label class="grow">Buscar <input id="crm-search" type="search" oninput="renderCrm()" placeholder="Cliente, delegado, ruta…"></label><button class="btn" onclick="newCrm()">+ Nuevo</button><button class="btn ghost" onclick="loadCrm()">Actualizar</button></div><p id="crm-status" class="notice" role="status">Importa el Excel para empezar.</p><div id="crm-list" class="table-wrap"></div><form id="crm-form" class="editor" hidden onsubmit="saveCrm(event)"><div class="section-head"><h3 id="crm-editor-title">Registro</h3><button type="button" class="btn ghost small" onclick="closeCrm()">Cerrar</button></div><div id="crm-fields" class="field-grid"></div><p><button class="btn primary">Guardar registro</button></p></form></section></div>
   <div id="panel-planning" hidden><section class="card planning-hero"><div class="section-head"><div><p class="eyebrow">Acompañamientos · Madrid y Aragón</p><h2>Planificación mensual inteligente</h2><p class="muted">Carga la planificación de los delegados. Aravitas cruza las rutas con tu agenda, alterna zonas y delegados y evita repetir farmacias. Nada se crea hasta que apruebes la propuesta.</p></div><form id="planning-upload" class="upload-inline" onsubmit="uploadPlanningExcel(event)"><label>Mes<input id="planning-month" type="month" required></label><label>Excel mensual<input id="planning-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label><button class="btn primary">Incorporar Excel</button></form></div><div class="planning-steps"><span class="active">1 · Excel</span><span>2 · Propuesta</span><span>3 · Revisión</span><span>4 · Aprobación</span></div><div class="sales-filters planning-controls"><label class="grow">Versión del Excel<select id="planning-source"></select></label><label>Lunes de referencia<input id="planning-anchor" type="date" required></label><label>Zona de esa semana<select id="planning-region"><option>Madrid</option><option>Aragón</option></select></label><button class="btn" type="button" onclick="loadPlanningWorkspace()">Actualizar agenda</button><button class="btn primary" type="button" onclick="createProposal()">Generar propuesta</button></div><p id="planning-status" class="notice" role="status">Selecciona un mes y carga el Excel de planificación.</p><div id="planning-availability"></div><div id="proposal-editor"></div><section class="planning-history"><div class="section-head"><div><h3>Histórico y versiones</h3><p class="muted small">Se conservan los Excel importados y todas las propuestas mensuales.</p></div></div><div id="proposal-list"></div></section></section></div>
   <div id="panel-admin" hidden>${programming}</div>
@@ -283,22 +462,23 @@ const money=n=>Number(n||0).toLocaleString('es-ES',{style:'currency',currency:'E
 const delegateName=s=>String(s||'').replace(/\b\d{5,8}\b/g,'').replace(/\s+/g,' ').trim();
 let lastSalesData=null;
 async function uploadSalesDashboard(e){e.preventDefault();const button=e.target.querySelector('button'),file=$('#sales-file').files[0];if(!file)return;button.disabled=true;$('#sales-status').textContent='Analizando todas las hojas, todas las farmacias y el detalle de presentaciones…';try{const form=new FormData();form.append('file',file);const r=await fetch('/api/sales-dashboard',{method:'POST',body:form});const j=await r.json();if(!r.ok)throw new Error(j.error);$('#sales-file').value='';await loadSalesDashboard(true);toast('Datos incorporados al '+j.import.sourceDate+(j.import.alerts.length?' · '+j.import.alerts.length+' alertas enviadas a Telegram':''));}catch(e){$('#sales-status').textContent=e.message}finally{button.disabled=false}}
-function salesParams(){const p=new URLSearchParams(),values={import:$('#sales-snapshot').value,delegate:$('#sales-delegate').value,client:$('#sales-client').value,molecule:$('#sales-molecule').value.trim(),product:$('#sales-product-search').value.trim()};for(const [k,v] of Object.entries(values))if(v)p.set(k,v);return p}
+function salesParams(){const p=new URLSearchParams(),values={import:$('#sales-snapshot').value,delegate:$('#sales-delegate').value,client:$('#sales-client').value,molecule:$('#sales-molecule').value.trim(),product:$('#sales-product-search').value.trim(),evolution:$('#sales-product-evolution').value,inactive:$('#sales-product-inactive').value};for(const [k,v] of Object.entries(values))if(v)p.set(k,v);return p}
 async function loadSalesDashboard(reset=false){if(!$('#sales-delegate'))return;if(reset){$('#sales-snapshot').value='';$('#sales-delegate').value='';$('#sales-client').value='';}$('#sales-status').textContent='Calculando indicadores y patrones comerciales…';try{const r=await fetch('/api/sales-dashboard?'+salesParams());const j=await r.json();if(!r.ok)throw new Error(j.error);if(j.empty){$('#sales-status').textContent='Sube el Excel semanal o envíalo a Aravitas por Telegram para crear el primer cuadro de mando.';$('#sales-dashboard').replaceChildren();return}syncSalesFilters(j);lastSalesData=j;renderSalesDashboard(j);$('#sales-status').textContent='Datos del '+j.latest.source_date+' · '+j.latest.client_count+' farmacias · '+j.latest.product_count+' presentaciones · origen '+j.latest.source_channel;}catch(e){$('#sales-status').textContent=e.message}}
 function fillSelect(el,rows,value,label,first){const selected=el.value;el.replaceChildren(Object.assign(document.createElement('option'),{value:'',textContent:first}));for(const row of rows)el.append(Object.assign(document.createElement('option'),{value:value(row),textContent:label(row)}));if([...el.options].some(x=>x.value===selected))el.value=selected}
 function syncSalesFilters(j){fillSelect($('#sales-snapshot'),j.imports,x=>x.id,x=>x.source_date+' · '+x.source_name,'Último disponible');$('#sales-snapshot').value=j.latest.id;fillSelect($('#sales-delegate'),j.delegates,x=>x.cod_del,x=>delegateName(x.delegate),'Todo el equipo');$('#sales-delegate').value=j.selectedDelegate;fillSelect($('#sales-client'),j.clientOptions,x=>x.vdl,x=>x.client+' · '+x.classification,'Todas las farmacias');$('#sales-client').value=j.selectedClient;const list=$('#molecule-list');list.replaceChildren(...j.molecules.map(x=>Object.assign(document.createElement('option'),{value:x})));const q=new Map();for(const d of j.delegateDetails)for(const point of d.quarters)q.set(point.quarter,point.quarter);fillSelect($('#sales-quarter'),[...q.values()],x=>x,x=>x,'Último disponible')}
 function salesDelegateChanged(){$('#sales-client').value='';loadSalesDashboard()}
-function clearSalesFilters(){$('#sales-delegate').value='';$('#sales-client').value='';$('#sales-quarter').value='';$('#sales-molecule').value='';$('#sales-product-search').value='';loadSalesDashboard()}
+function clearSalesFilters(){$('#sales-delegate').value='';$('#sales-client').value='';$('#sales-quarter').value='';$('#sales-molecule').value='';$('#sales-product-search').value='';$('#sales-product-evolution').value='';$('#sales-product-inactive').value='';loadSalesDashboard()}
 function downloadSalesPdf(){const p=salesParams();window.open('/api/sales-dashboard/report.pdf?'+p.toString(),'_blank','noopener')}
 function bars(rows,label,value,format=money,bad=false){if(!rows.length)return'<p class="muted">Sin datos.</p>';const max=Math.max(...rows.map(x=>Math.abs(Number(value(x)||0))),1);return rows.map(x=>'<div class="chart-row"><span>'+esc(label(x))+'</span><div class="chart-track"><div class="chart-fill '+(bad?'bad':'')+'" style="width:'+Math.max(2,100*Math.abs(Number(value(x)||0))/max)+'%"></div></div><b class="num nowrap">'+format(value(x))+'</b></div>').join('')}
 const chartColors=['#8B7CF6','#5DD3F0','#4ADE80','#FBBF24','#F87171','#C084FC','#38BDF8','#FB7185','#A3E635','#F97316'];
 function visualChart(rows,label,value,format=money,forced){const type=forced||$('#sales-chart').value,items=rows.map(x=>({label:String(label(x)),value:Number(value(x)||0)}));if(!items.length)return'<p class="muted">Sin datos.</p>';if(type==='bar')return bars(rows,label,value,format);if(type==='donut'){const total=items.reduce((n,x)=>n+Math.max(0,x.value),0)||1,c=2*Math.PI*72;let offset=0;const circles=items.map((x,i)=>{const part=Math.max(0,x.value)/total*c,tag='<circle cx="110" cy="110" r="72" fill="none" stroke="'+chartColors[i%chartColors.length]+'" stroke-width="34" stroke-dasharray="'+part+' '+(c-part)+'" stroke-dashoffset="'+(-offset)+'" transform="rotate(-90 110 110)"/>';offset+=part;return tag}).join('');return'<div class="donut-layout"><svg class="chart-svg" viewBox="0 0 220 220" role="img">'+circles+'<text x="110" y="107" fill="currentColor" text-anchor="middle" font-size="14">Total</text><text x="110" y="130" fill="currentColor" text-anchor="middle" font-size="20">'+format(total)+'</text></svg><div class="chart-legend">'+items.map((x,i)=>'<span><i class="legend-dot" style="background:'+chartColors[i%chartColors.length]+'"></i>'+esc(x.label)+' · '+format(x.value)+'</span>').join('')+'</div></div>'}const max=Math.max(...items.map(x=>x.value),1),min=Math.min(...items.map(x=>x.value),0),span=max-min||1,points=items.map((x,i)=>({x:35+i*(570/Math.max(1,items.length-1)),y:185-(x.value-min)/span*145,...x}));return'<svg class="chart-svg" viewBox="0 0 640 230" role="img"><line x1="35" y1="185" x2="605" y2="185" stroke="#2A3150"/><polyline points="'+points.map(p=>p.x+','+p.y).join(' ')+'" fill="none" stroke="#5DD3F0" stroke-width="4"/>'+points.map((p,i)=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="'+chartColors[i%chartColors.length]+'"/><text x="'+p.x+'" y="210" fill="#9AA3BF" text-anchor="middle" font-size="10">'+esc(p.label.slice(0,12))+'</text>').join('')+'</svg>'}
 function rowsTable(headers,rows,cells){if(!rows.length)return'<p class="muted">Sin datos con estos filtros.</p>';return'<div class="table-wrap"><table><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+cells(row).map((v,i)=>'<td class="'+(/YTD|Variación|Promedio|Evolución|Venta/i.test(headers[i])?'num':'')+'">'+v+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'}
-function statusClass(s){return/crecimiento/i.test(s)?'growth':/apertura/i.test(s)?'opening':/detenida/i.test(s)?'stopped':/decrecimiento/i.test(s)?'decline':''}
+function statusClass(s){return/crecimiento|aumento/i.test(s)?'growth':/apertura|nueva compra/i.test(s)?'opening':/detenida|perdida/i.test(s)?'stopped':/decrecimiento|descenso/i.test(s)?'decline':''}
+function productMonthLabel(value){if(!value)return'—';const names=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'],month=Number(String(value).slice(4,6)),year=String(value).slice(2,4);return(names[month-1]||month)+' '+year}
 function aggregateQuarters(j){if(j.clientDetail)return j.clientDetail.quarters;const map=new Map();for(const d of j.delegateDetails)for(const q of d.quarters){const x=map.get(q.quarter)||{quarter:q.quarter,total:0,platform:0,push:0,projected:0};x.total+=Number(q.total||0);x.platform+=Number(q.platform||0);x.push+=Number(q.push||0);x.projected+=Number(q.projected||q.total||0);map.set(q.quarter,x)}return[...map.values()].map(x=>({...x,directPct:x.total?x.push/x.total:0}))}
-function renderSalesDashboard(j){if(!j)return;const sum=(rows,key)=>rows.reduce((n,x)=>n+Number(x[key]||0),0),quota=sum(j.quota,'quota_q'),quarterSales=sum(j.quota,'sale_1')+sum(j.quota,'sale_2')+sum(j.quota,'sale_3'),coverage=quota?quarterSales/quota:0,teamGap=Math.max(0,quota-quarterSales),quarters=aggregateQuarters(j),selectedQuarter=$('#sales-quarter').value||quarters.at(-1)?.quarter,quarter=quarters.find(x=>x.quarter===selectedQuarter)||quarters.at(-1)||{},current=Number(quarter.total||0),push=Number(quarter.push||0),platform=Number(quarter.platform||0),directPct=current?push/current:0,ytd=j.ytd||{},ytdPct=Number(ytd.previous)?Number(ytd.variation)/Number(ytd.previous):0,openings=Number(ytd.openings||0),profile=j.clientDetail,gap=profile?Math.max(0,-Number(profile.forecast_gap||0)):teamGap,filteredProducts=profile?j.clientProducts:j.products,productSummary=profile?filteredProducts.reduce((a,x)=>(a[x.status]=(a[x.status]||0)+1,a),{}):(j.productSummary||{}),host=$('#sales-dashboard');
+function renderSalesDashboard(j){if(!j)return;const sum=(rows,key)=>rows.reduce((n,x)=>n+Number(x[key]||0),0),quota=sum(j.quota,'quota_q'),quarterSales=sum(j.quota,'sale_1')+sum(j.quota,'sale_2')+sum(j.quota,'sale_3'),coverage=quota?quarterSales/quota:0,teamGap=Math.max(0,quota-quarterSales),quarters=aggregateQuarters(j),selectedQuarter=$('#sales-quarter').value||quarters.at(-1)?.quarter,quarter=quarters.find(x=>x.quarter===selectedQuarter)||quarters.at(-1)||{},current=Number(quarter.total||0),push=Number(quarter.push||0),platform=Number(quarter.platform||0),directPct=current?push/current:0,ytd=j.ytd||{},ytdPct=Number(ytd.previous)?Number(ytd.variation)/Number(ytd.previous):0,openings=Number(ytd.openings||0),profile=j.clientDetail,gap=profile?Math.max(0,-Number(profile.forecast_gap||0)):teamGap,productSummary=j.productSummary||{},host=$('#sales-dashboard');
 let html='<div class="metric-grid"><div class="metric '+(coverage>=1?'positive':coverage>=.85?'warning':'negative')+'"><small>Cobertura del objetivo trimestral</small><strong>'+percent(coverage)+'</strong><small>'+money(quarterSales)+' de '+money(quota)+'</small></div><div class="metric negative"><small>Falta para la previsión</small><strong>'+money(gap)+'</strong><small>'+(profile?'previsión pendiente de la farmacia':'objetivo trimestral pendiente')+'</small></div><div class="metric '+(ytdPct>=0?'positive':'negative')+'"><small>Crecimiento YTD</small><strong>'+percent(ytdPct)+'</strong><small>'+money(ytd.variation||0)+' frente al YTD anterior</small></div><div class="metric"><small>Venta '+esc(selectedQuarter||'actual')+'</small><strong>'+money(current)+'</strong><small>proyección '+money(quarter.projected||current)+'</small></div><div class="metric"><small>Venta directa / push</small><strong>'+percent(directPct)+'</strong><small>'+money(push)+' push · '+money(platform)+' plataforma</small></div><div class="metric positive"><small>Aperturas de farmacias</small><strong>'+openings+'</strong><small>antes no compraban y ahora sí</small></div></div>';
-const presentationsHtml='<section class="dashboard-block wide"><h3>Presentaciones por farmacia y área</h3><p class="muted small">Compara el promedio mensual del trimestre actual con el anterior. Usa los filtros de molécula, presentación y farmacia.</p><div class="metric-grid">'+Object.entries(productSummary).map(([name,count])=>'<div class="metric"><small>'+esc(name)+'</small><strong>'+Number(count).toLocaleString('es-ES')+'</strong><small>presentaciones</small></div>').join('')+'</div>'+rowsTable(['Código','Molécula','Presentación','Estado','Promedio anterior','Promedio actual','Evolución'],filteredProducts.slice(0,200),x=>[esc(x.national_code||x.nationalCode),esc(x.brand||'—'),esc(x.presentation),'<span class="trend-badge '+statusClass(x.status)+'">'+esc(x.status)+'</span>',Number(x.previous_avg??x.previousAvg??0).toLocaleString('es-ES',{maximumFractionDigits:1}),Number(x.current_avg??x.currentAvg??0).toLocaleString('es-ES',{maximumFractionDigits:1}),x.change_pct==null&&x.changePct==null?'—':percent(x.change_pct??x.changePct)])+'</section>';
+const productMonths=j.productMonths||[],moleculeRows=j.moleculeProducts||[],productAlerts=j.productAlerts||[],lossAlert=productAlerts.length?'<div class="alert-card critical"><b>Alerta · '+productAlerts.length+' moléculas perdidas prioritarias</b><span>'+productAlerts.slice(0,5).map(x=>esc(x.molecule)+' ('+Number(x.monthsWithoutPurchase)+' mes'+(Number(x.monthsWithoutPurchase)===1?'':'es')+')').join(' · ')+'</span></div>':'',presentationsHtml='<section class="dashboard-block wide"><h3>Presentaciones por farmacia y área</h3><p class="muted small">Interpretación por molécula de las ocho columnas mensuales del Excel. La evolución compara el ritmo proyectado del trimestre actual con el trimestre anterior completo; los promedios se han retirado de la vista.</p>'+lossAlert+'<div class="metric-grid">'+Object.entries(productSummary).map(([name,count])=>'<div class="metric '+(/perdida|descenso/i.test(name)?'negative':/aumento|nueva/i.test(name)?'positive':'')+'"><small>'+esc(name)+'</small><strong>'+Number(count).toLocaleString('es-ES')+'</strong><small>moléculas</small></div>').join('')+'</div>'+rowsTable(['Molécula','Presentaciones',...productMonths.map(productMonthLabel),'Q anterior','Q actual','Proyección Q','Evolución','Estado','Sin compra'],moleculeRows.slice(0,300),x=>['<b>'+esc(x.molecule)+'</b><small class="muted">'+esc((x.presentations||[]).slice(0,3).join(' · '))+((x.presentations||[]).length>3?' · +'+((x.presentations||[]).length-3):'')+'</small>',Number(x.presentationCount||0).toLocaleString('es-ES'),...productMonths.map(month=>Number((x.months||{})[month]||0).toLocaleString('es-ES')),Number(x.previousUnits||0).toLocaleString('es-ES'),Number(x.currentUnits||0).toLocaleString('es-ES'),Number(x.projectedUnits||0).toLocaleString('es-ES',{maximumFractionDigits:0}),x.changePct==null?'—':'<span class="'+(Number(x.changePct)>=0?'ok':'bad')+'">'+percent(x.changePct)+'</span>','<span class="trend-badge '+statusClass(x.status)+'">'+esc(x.status)+'</span>',Number(x.monthsWithoutPurchase||0)>0?'<span class="bad">'+Number(x.monthsWithoutPurchase)+' mes'+(Number(x.monthsWithoutPurchase)===1?'':'es')+'</span>':'<span class="ok">Compra en '+esc(productMonthLabel((j.productMonths||[]).at(-1)))+'</span>'])+'</section>';
 if(profile){const a=profile.agreement||{},sourceDay=Date.parse((j.latest.source_date||'')+'T12:00:00Z'),endDay=a.end?Date.parse(a.end+'T12:00:00Z'):NaN,startDay=a.start?Date.parse(a.start+'T12:00:00Z'):NaN,daysRemaining=Number.isFinite(endDay)?Math.ceil((endDay-sourceDay)/86400000):null,daysElapsed=Number.isFinite(startDay)?Math.max(0,Math.floor((sourceDay-startDay)/86400000)):null,address=[profile.city,profile.province,profile.postal_code].filter(Boolean).join(' · ');html+='<div class="dashboard-grid"><section class="dashboard-block wide"><p class="eyebrow">Ficha 360º de farmacia</p><h3>'+esc(profile.client)+'</h3><div class="profile-grid"><div class="profile-item"><small>Clasificación</small><b>'+esc(profile.classification)+'</b></div><div class="profile-item"><small>Delegado</small><b>'+esc(delegateName(profile.delegate))+'</b></div><div class="profile-item"><small>Ruta</small><b>'+esc(profile.route||'Sin ruta')+'</b></div><div class="profile-item"><small>Localización</small><b>'+esc(address||'No informada')+'</b></div><div class="profile-item"><small>Patrón de compra</small><b class="trend-badge '+statusClass(profile.purchase_pattern)+'">'+esc(profile.purchase_pattern)+'</b></div><div class="profile-item"><small>Venta directa</small><b>'+percent(profile.direct_pct||0)+'</b></div></div></section>'+(a.active?'<section class="dashboard-block wide"><h3>Acuerdo comercial</h3><div class="profile-grid"><div class="profile-item"><small>Condiciones</small><b>'+esc(a.condition||'No detalladas')+'</b></div><div class="profile-item"><small>Compromiso</small><b>'+money(a.commitment||0)+'</b></div><div class="profile-item"><small>Acumulado</small><b>'+money(a.accumulated||0)+'</b></div><div class="profile-item"><small>Falta</small><b class="bad">'+money(Math.max(0,a.remaining||0))+'</b></div><div class="profile-item"><small>Inicio</small><b>'+esc(a.start||'—')+'</b></div><div class="profile-item"><small>Vencimiento</small><b class="'+(daysRemaining!==null&&daysRemaining<=30?'bad':'warn')+'">'+esc(a.end||'—')+'</b></div><div class="profile-item"><small>Tiempo transcurrido</small><b>'+(daysElapsed===null?'—':daysElapsed+' días')+'</b></div><div class="profile-item"><small>Tiempo restante</small><b class="'+(daysRemaining!==null&&daysRemaining<=30?'bad':'')+'">'+(daysRemaining===null?'—':daysRemaining<0?'Vencido hace '+Math.abs(daysRemaining)+' días':daysRemaining+' días')+'</b></div></div></section>':'')+'<section class="dashboard-block"><h3>Histórico trimestral</h3>'+visualChart(quarters,x=>x.quarter,x=>x.total,money)+'</section><section class="dashboard-block"><h3>Push frente a plataforma</h3>'+visualChart([{name:'Push / directo',value:push},{name:'Plataforma',value:platform}],x=>x.name,x=>x.value,money,'donut')+'</section><section class="dashboard-block wide"><h3>OTC comprado</h3><div class="otc-grid">'+profile.otc.map(x=>'<div class="otc-item '+(x.purchased?'yes':'')+'"><small>'+esc(x.name)+'</small><b>'+(x.purchased?Number(x.quantity).toLocaleString('es-ES')+' uds':'No compra')+'</b></div>').join('')+'</div></section>'+presentationsHtml+'</div>'}
 else{html+='<div class="dashboard-grid"><section class="dashboard-block"><h3>Evolución trimestral</h3>'+visualChart(quarters,x=>x.quarter,x=>x.total,money)+'</section><section class="dashboard-block"><h3>Venta push y plataforma</h3>'+visualChart([{name:'Push / directo',value:push},{name:'Plataforma',value:platform}],x=>x.name,x=>x.value,money,'donut')+'</section><section class="dashboard-block"><h3>Cobertura por delegado</h3>'+visualChart(j.quota,x=>delegateName(x.delegate),x=>x.coverage_q,percent)+'</section><section class="dashboard-block"><h3>Clasificación de clientes</h3>'+visualChart(j.classifications,x=>x.classification,x=>x.clients,n=>Number(n).toLocaleString('es-ES'),'donut')+'</section><section class="dashboard-block"><h3>Aperturas por delegado</h3>'+visualChart(j.delegateDetails,x=>delegateName(x.delegate),x=>x.openings_count,n=>Number(n).toLocaleString('es-ES'))+'</section><section class="dashboard-block"><h3>Patrones de compra</h3>'+visualChart(j.purchasePatterns||[],x=>x.pattern,x=>x.count,n=>Number(n).toLocaleString('es-ES'),'donut')+'</section><section class="dashboard-block"><h3>Crecen frente a decrecen</h3>'+visualChart([{name:'Crecen',value:Number(ytd.growing||0)},{name:'Decrecen',value:Number(ytd.declining||0)}],x=>x.name,x=>x.value,n=>Number(n).toLocaleString('es-ES'),'donut')+'</section></div>'}
 html+='<div class="dashboard-grid" style="margin-top:16px">'+(j.alerts.length?'<section class="dashboard-block wide"><h3>Alertas de acuerdos</h3><p class="muted small">Las desviaciones significativas y vencimientos también se notifican en Telegram al actualizar el Excel.</p>'+j.alerts.map(x=>'<div class="alert-card '+esc(x.severity)+'"><b>'+esc(x.client)+' · '+esc(x.title)+'</b><span>'+esc(x.detail)+'</span></div>').join('')+'</section>':'')+'<section class="dashboard-block wide"><h3>Crecimiento y decrecimiento YTD</h3>'+rowsTable(['Farmacia','Delegado','Clasificación','YTD actual','Variación','Patrón','Ruta'],j.changes,x=>[esc(x.client),esc(delegateName(x.delegate)),esc(x.classification),money(x.current_vrn),'<span class="'+(Number(x.variation)>=0?'ok':'bad')+'">'+money(x.variation)+'</span>','<span class="trend-badge '+statusClass(x.purchase_pattern)+'">'+esc(x.purchase_pattern||'—')+'</span>',esc(x.route||'—')])+'</section>'+(profile?'':presentationsHtml)+'</div>';host.innerHTML=html}
