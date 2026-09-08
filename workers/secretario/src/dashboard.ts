@@ -9,6 +9,7 @@ import { vaultDelete, vaultList, vaultSet } from './tools/autonomyTools';
 import { localTime, today } from './util';
 import { PLANNING_JS } from './planningUi';
 import { SALES_UI_JS } from './salesUi';
+import { CRM_UI_JS } from './crmUi';
 
 /**
  * Panel web del agente: estado, uso, conocimiento, herramientas y conexión de OpenAI.
@@ -196,7 +197,7 @@ export function page(env: Env, body: string, status = 200): Response {
 <header class="top"><a class="brand" href="/">${LOGO}<span><b>${brand}</b><small>${tagline}</small></span></a><nav id="nav"></nav></header>
 <main id="app">${body}</main>
 <footer class="foot">${brand} · agente personal en Cloudflare · <span id="clock"></span></footer>
-<script>${JS}\n${PLANNING_JS}\n${SALES_UI_JS}</script></body></html>`,
+<script>${JS}\n${PLANNING_JS}\n${SALES_UI_JS}\n${CRM_UI_JS}</script></body></html>`,
     { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
   );
 }

@@ -246,6 +246,7 @@ export interface CalEvent {
   link?: string;
   /** Respuesta del propio usuario a la invitación, si la hay. */
   myStatus?: string;
+  transparency?: 'transparent'|'opaque';
 }
 
 let calCache: { at: number; list: CalInfo[] } | null = null;
@@ -289,6 +290,7 @@ const evOf = (e: any, cal: { id: string; name: string }, ownerEmail?: string): C
     attendees: (e.attendees ?? []).map((a: any) => a.email),
     link: e.htmlLink,
     myStatus: self?.responseStatus,
+    transparency: e.transparency === 'transparent' ? 'transparent' : 'opaque',
   };
 };
 

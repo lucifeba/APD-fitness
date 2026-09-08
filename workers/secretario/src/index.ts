@@ -13,7 +13,7 @@ import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCal
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
 import { proposeAccompaniments, type PlanningInput } from './planning';
-import { createProposalFromSource, decideProposal, importPlanningSource, listPlanningSources, listProposals, planningAvailability, saveProposal, syncManualPlanningEvents, updateProposal } from './planningStore';
+import { createProposalFromSource, decideProposal, importPlanningSource, listPlanningSources, listProposals, planningAvailability, saveProposal, syncOperationalData, updateProposal } from './planningStore';
 import { crmApi, importCrmExcel, syncCrmExcel } from './crm';
 import { transcribe } from './media';
 import { salesDashboardApi } from './salesDashboard';
@@ -146,6 +146,10 @@ export default {
         if (url.pathname === '/api/crm') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
           return crmApi(req,env,email);
+        }
+        if (url.pathname === '/api/crm/synchronize' && req.method === 'POST') {
+          if (!email || email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase()) return json({error:'Solo la propietaria puede sincronizar la operativa.'},403);
+          const result=await syncOperationalData(env);return json({ok:!result.importError&&!result.syncError,result},result.importError||result.syncError?409:200);
         }
         if (url.pathname === '/api/crm/import' && req.method === 'POST') {
           if (!email || email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase()) return json({error:'Solo la propietaria puede importar el CRM.'},403);
@@ -434,10 +438,8 @@ o, si de verdad necesitas aclaraciones:
 
   async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const owner = await ownerChatId(env);
-    if (!owner) return;
-    ctx.waitUntil(Promise.all([
-      sessionFor(env, owner).fetch('https://session/heartbeat', { method: 'POST' }).catch((e) => console.error('heartbeat', e)),
-      syncManualPlanningEvents(env).catch((e)=>console.error('calendar crm sync',e)),
-    ]).then(()=>undefined));
+    const jobs:Promise<unknown>[]=[syncOperationalData(env).catch((e)=>console.error('calendar crm sync',e))];
+    if(owner)jobs.push(sessionFor(env, owner).fetch('https://session/heartbeat', { method: 'POST' }).catch((e) => console.error('heartbeat', e)));
+    ctx.waitUntil(Promise.all(jobs).then(()=>undefined));
   },
 };

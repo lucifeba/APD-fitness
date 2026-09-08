@@ -2,7 +2,8 @@ import type { Env } from './env';
 import { proposeAccompaniments, type PlanningInput, type PlanningPharmacy, type Region, type RouteDay } from './planning';
 import { calendarList, calendarUpsert, calendarsList } from './google';
 import { pharmacyVisitEvent } from './pharmacyVisit';
-import { stageCrmRecord, syncCrmExcel } from './crm';
+import { importCrmExcel, stageCrmRecord, syncCrmExcel } from './crm';
+import { setSetting } from './db';
 import { parsePlanningWorkbook } from './planningXlsx';
 
 const norm=(s:string)=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
@@ -25,10 +26,10 @@ async function planningCalendars(env:Env){
 export async function planningAvailability(env:Env,month:string){
   if(!validMonth(month))throw new Error('Mes inválido.');
   const events=await calendarList(env,`${month}-01T00:00:00+01:00`,`${nextMonth(month)}-01T00:00:00+01:00`,500);
-  const byDate:Record<string,{summary:string;calendar:string;start:string;end:string;allDay:boolean}[]>={};
-  for(const event of events){const date=event.start.slice(0,10);if(!date.startsWith(month))continue;(byDate[date]??=[]).push({summary:event.summary,calendar:event.calendar,start:event.start,end:event.end,allDay:event.allDay});}
+  const byDate:Record<string,{summary:string;calendar:string;start:string;end:string;allDay:boolean;transparent:boolean}[]>={};
+  for(const event of events){const date=event.start.slice(0,10);if(!date.startsWith(month)||['familia','family'].includes(norm(event.calendar)))continue;(byDate[date]??=[]).push({summary:event.summary,calendar:event.calendar,start:event.start,end:event.end,allDay:event.allDay,transparent:event.transparency==='transparent'});}
   const days:{date:string;weekday:number;available:boolean;events:any[]}[]=[];
-  for(let ms=Date.parse(`${month}-01T00:00:00Z`);new Date(ms).toISOString().startsWith(month);ms+=86400000){const date=new Date(ms).toISOString().slice(0,10),weekday=new Date(ms).getUTCDay();if([2,3,4].includes(weekday))days.push({date,weekday,available:!(byDate[date]?.length),events:byDate[date]||[]});}
+  for(let ms=Date.parse(`${month}-01T00:00:00Z`);new Date(ms).toISOString().startsWith(month);ms+=86400000){const date=new Date(ms).toISOString().slice(0,10),weekday=new Date(ms).getUTCDay(),dayEvents=byDate[date]||[];if([2,3,4].includes(weekday))days.push({date,weekday,available:!dayEvents.some(x=>!x.transparent),events:dayEvents});}
   return{month,days,busyDates:days.filter(x=>!x.available).map(x=>x.date),eventCount:events.length};
 }
 
@@ -94,11 +95,11 @@ async function executeProposal(env:Env,id:string,email:string,selected:RouteDay[
   for(const day of selected){
     const pharmacies=day.pharmacies.map(fullPharmacy),end=plusDay(day.date),accompanimentId=await eventId(`${id}|accompaniment|${day.date}`);
     await calendarUpsert(env,{id:accompanimentId,calendar_id:cals.accompaniments.id,summary:`Acompañamiento · ${day.delegate}`,start:day.date,end,transparency:'transparent',description:`Delegado: ${day.delegate}\nZona: ${day.region}\nRuta: ${day.route}\nFarmacias:\n${pharmacies.map(p=>`• ${p.name} · ${p.classification} · ${p.address}`).join('\n')}\n\n[Aravitas:planning:${id}]`},env.TIMEZONE||'Europe/Madrid');events++;
-    await stageCrmRecord(env,`ACOMP-${id}-${day.date}`,'accompaniments',{'Fecha':day.date,'Delegado':day.delegate,'Ruta / zona':day.route,'Visitas planificadas':String(pharmacies.length),'Visitas efectivas':'','Objetivo acompañamiento':'Supervisión del trabajo en ruta','Foco observado':'','Fortalezas (evidencia)':'','Mejora (evidencia)':'','Acción del manager':'','Compromiso delegado':'','Fecha revisión':'','Estado':'Pendiente'},email);
+    await stageCrmRecord(env,`ACOMP-${id}-${day.date}`,'accompaniments',{'Fecha':day.date,'Delegado':day.delegate,'Ruta / zona':day.route,'Visitas planificadas':String(pharmacies.length),'Visitas efectivas':'','Objetivo acompañamiento':'Supervisión del trabajo en ruta','Foco observado':'','Fortalezas (evidencia)':'','Mejora (evidencia)':'','Acción del manager':'','Compromiso delegado':'','Fecha revisión':'','Estado':'Pendiente','ID evento Google':accompanimentId},email);
     for(let i=0;i<pharmacies.length;i++){
       const p=pharmacies[i],visitId=await eventId(`${id}|visit|${day.date}|${i}|${p.name}`),event=pharmacyVisitEvent({pharmacy:p.name,date:day.date,address:p.address,classification:p.classification,route:day.route,delegate:day.delegate,clientId:p.clientId,notes:[p.notes,`[Aravitas:planning:${id}]`].filter(Boolean).join('\n'),time:p.time,durationMinutes:p.durationMinutes},cals.planning.id);
       await calendarUpsert(env,{...event,id:visitId,calendar_id:cals.planning.id,transparency:'transparent'},env.TIMEZONE||'Europe/Madrid');events++;visits++;
-      await stageCrmRecord(env,`VIS-${id}-${day.date}-${i}`,'visits',{'Fecha':day.date,'Delegado':day.delegate,'VDL':p.clientId||'','Cliente':p.name,'Con acompañamiento':'Sí','Planificada':'Sí','Efectiva':'','Objetivo':'Visita de acompañamiento','Resultado':'','Barreras':'','Potencial / oportunidad':'','Próxima acción':'','Nueva fecha de visita':'','Estado':'Pendiente','Realizada':'Pendiente','ID evento Google':visitId},email);
+      await stageCrmRecord(env,`VIS-${id}-${day.date}-${i}`,'visits',{'Fecha':day.date,'Delegado':day.delegate,'VDL':p.clientId||'','Cliente':p.name,'Dirección':p.address,'Clasificación':p.classification,'Ruta':day.route,'Con acompañamiento':'Sí','Planificada':'Sí','Efectiva':'','Objetivo':'Visita de acompañamiento','Resultado':'','Barreras':'','Potencial / oportunidad':'','Próxima acción':'','Nueva fecha de visita':'','Estado':'Pendiente','Realizada':'Pendiente','ID evento Google':visitId},email);
     }
   }
   const excel=await syncCrmExcel(env);return{calendarEventsCreated:events,visitsCreated:visits,excelRecordsSynced:excel.synced};
@@ -131,4 +132,25 @@ export async function syncManualPlanningEvents(env:Env){
     else if(existing.data!==json){await env.DB.prepare('UPDATE crm_records SET data=?,version=version+1,updated_at=?,updated_by=? WHERE id=?').bind(json,new Date().toISOString(),'calendar-sync',id).run();changed++;}
   }
   if(!changed)return{scanned:events.length,changed:0,synced:0};const synced=await syncCrmExcel(env);return{scanned:events.length,changed,synced:synced.synced};
+}
+
+const googleRecordId=(eventId:string)=>'GCAL-'+eventId.replace(/[^a-zA-Z0-9-]/g,'-').slice(0,70);
+const pharmacyCount=(description:string|undefined)=>description?.split('\n').filter(x=>/^\s*[•*-]\s+/.test(x)).length||0;
+
+/** Reconciliación completa: Excel -> aplicación, calendarios -> aplicación y aplicación -> Excel. */
+export async function syncOperationalData(env:Env){
+  const started=new Date().toISOString();let imported:any=null,importError='';
+  try{imported=await importCrmExcel(env,'automatic-excel-sync')}catch(error){importError=error instanceof Error?error.message:String(error)}
+  const cals=await planningCalendars(env),now=new Date(),from=new Date(now.getTime()-120*86400000).toISOString(),to=new Date(now.getTime()+370*86400000).toISOString();
+  const [visits,accompaniments,recordRows,clientRows]=await Promise.all([
+    calendarList(env,from,to,1000,cals.planning.id),calendarList(env,from,to,1000,cals.accompaniments.id),
+    env.DB.prepare("SELECT id,section,data,version FROM crm_records WHERE section IN ('visits','accompaniments')").all<{id:string;section:'visits'|'accompaniments';data:string;version:number}>(),
+    env.DB.prepare('SELECT c.* FROM sales_dashboard_clients c JOIN sales_dashboard_imports i ON i.id=c.import_id WHERE i.id=(SELECT id FROM sales_dashboard_imports ORDER BY source_date DESC,imported_at DESC LIMIT 1)').all<any>(),
+  ]);
+  const records=recordRows.results.map(row=>({...row,values:JSON.parse(row.data)as Record<string,string>})),byEvent=new Map(records.filter(x=>x.values['ID evento Google']).map(x=>[x.values['ID evento Google'],x])),clients=new Map(clientRows.results.map(x=>[norm(String(x.client)),x]));let changed=0;
+  const upsert=async(section:'visits'|'accompaniments',eventId:string,data:Record<string,string>)=>{const current=byEvent.get(eventId),stamp=new Date().toISOString(),json=JSON.stringify(data);if(!current){await env.DB.prepare('INSERT OR IGNORE INTO crm_records(id,section,data,version,updated_at,updated_by,synced_version,source_row) VALUES(?,?,?,1,?,?,0,NULL)').bind(googleRecordId(eventId),section,json,stamp,'calendar-sync').run();changed++;return}if(current.data!==json){await env.DB.prepare('UPDATE crm_records SET data=?,version=version+1,updated_at=?,updated_by=? WHERE id=?').bind(json,stamp,'calendar-sync',current.id).run();current.data=json;current.values=data;changed++;}};
+  for(const event of visits){const current=byEvent.get(event.id),named=field(event.description,'Farmacia')||event.summary.replace(/^(visita|farmacia)\s*[·:\-]?\s*/i,'').trim(),match=clients.get(norm(named));if(!current&&!field(event.description,'Farmacia')&&!/^(visita|farmacia)\b/i.test(event.summary)&&!match)continue;const old=current?.values||{},client=field(event.description,'Farmacia')||match?.client||named;if(!client)continue;await upsert('visits',event.id,{...old,'Fecha':event.start.slice(0,10),'Delegado':field(event.description,'Delegado')||match?.delegate||old.Delegado||'Sin asignar','VDL':field(event.description,'VDL')||match?.vdl||old.VDL||'','Cliente':client,'Dirección':field(event.description,'Dirección')||event.location||old['Dirección']||'','Clasificación':field(event.description,'Clasificación del cliente')||match?.classification||old['Clasificación']||'','Ruta':field(event.description,'Ruta')||match?.route||old.Ruta||'','Con acompañamiento':old['Con acompañamiento']||'No','Planificada':'Sí','Efectiva':old.Efectiva||'','Objetivo':old.Objetivo||'Visita creada en Google Calendar','Resultado':old.Resultado||'','Barreras':old.Barreras||'','Potencial / oportunidad':old['Potencial / oportunidad']||'','Próxima acción':old['Próxima acción']||'','Nueva fecha de visita':old['Nueva fecha de visita']||'','Estado':old.Estado||'Pendiente','Realizada':old.Realizada||'Pendiente','ID evento Google':event.id});}
+  for(const event of accompaniments){const delegate=field(event.description,'Delegado')||event.summary.replace(/^acompa(?:ñ|n)amiento\s*[·:\-]?\s*/i,'').trim();if(!delegate)continue;const date=event.start.slice(0,10),fallback=records.find(x=>x.section==='accompaniments'&&!x.values['ID evento Google']&&x.values.Fecha===date&&norm(x.values.Delegado)===norm(delegate));if(fallback)byEvent.set(event.id,fallback);const current=byEvent.get(event.id),old=current?.values||{};await upsert('accompaniments',event.id,{...old,'Fecha':date,'Delegado':delegate,'Ruta / zona':field(event.description,'Ruta')||old['Ruta / zona']||'Sin ruta','Visitas planificadas':String(pharmacyCount(event.description)||Number(old['Visitas planificadas']||0)),'Visitas efectivas':old['Visitas efectivas']||'','Objetivo acompañamiento':old['Objetivo acompañamiento']||'Supervisión y desarrollo del delegado en ruta','Foco observado':old['Foco observado']||'','Fortalezas (evidencia)':old['Fortalezas (evidencia)']||'','Mejora (evidencia)':old['Mejora (evidencia)']||'','Acción del manager':old['Acción del manager']||'','Compromiso delegado':old['Compromiso delegado']||'','Fecha revisión':old['Fecha revisión']||'','Estado':old.Estado||'Pendiente','ID evento Google':event.id});}
+  let excel:any={synced:0};let syncError='';try{excel=await syncCrmExcel(env)}catch(error){syncError=error instanceof Error?error.message:String(error)}
+  const result={started,finished:new Date().toISOString(),calendarEventsScanned:visits.length+accompaniments.length,visitsScanned:visits.length,accompanimentsScanned:accompaniments.length,changed,excelImported:imported?.changed||0,excelSynced:excel.synced||0,importError,syncError};await setSetting(env,'last_operational_sync',result.finished);await setSetting(env,'last_operational_result',JSON.stringify(result));return result;
 }

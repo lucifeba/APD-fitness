@@ -5,7 +5,7 @@ import { displayValue, nextEmptyRows, patchSheet, readSheet } from './xlsxCrm';
 
 // Labels follow the existing workbook. IDs and Calendar references are not editable.
 export const crmFields = {
-  visits: ['Fecha','Delegado','VDL','Cliente','Con acompañamiento','Planificada','Efectiva','Objetivo','Resultado','Barreras','Potencial / oportunidad','Próxima acción','Nueva fecha de visita','Estado','Realizada'],
+  visits: ['Fecha','Delegado','VDL','Cliente','Dirección','Clasificación','Ruta','Con acompañamiento','Planificada','Efectiva','Objetivo','Resultado','Barreras','Potencial / oportunidad','Próxima acción','Nueva fecha de visita','Estado','Realizada'],
   accompaniments: ['Fecha','Delegado','Ruta / zona','Visitas planificadas','Visitas efectivas','Objetivo acompañamiento','Foco observado','Fortalezas (evidencia)','Mejora (evidencia)','Acción del manager','Compromiso delegado','Fecha revisión','Estado'],
 } as const;
 export type CrmSection = keyof typeof crmFields;
@@ -35,7 +35,7 @@ export async function crmApi(req: Request, env: Env, email: string): Promise<Res
       if (section !== 'visits' && section !== 'accompaniments') return reply({error:'Sección inválida'},400);
       const rows = await env.DB.prepare('SELECT * FROM crm_records WHERE section=? ORDER BY updated_at DESC LIMIT 500').bind(section).all<{id:string;data:string;version:number;synced_version:number}>();
       const pending=await env.DB.prepare('SELECT COUNT(*) n FROM crm_records WHERE version>synced_version').first<{n:number}>();
-      return reply({fields:crmFields[section],records:rows.results.map(row=>({...row,data:JSON.parse(row.data)})),excelSyncAvailable:Boolean(env.CRM_DRIVE_FILE_ID),pending:Number(pending?.n||0),sourceModified:await getSetting(env,'crm_excel_modified_time')});
+      return reply({fields:crmFields[section],records:rows.results.map(row=>({...row,data:JSON.parse(row.data)})),excelSyncAvailable:Boolean(env.CRM_DRIVE_FILE_ID),pending:Number(pending?.n||0),sourceModified:await getSetting(env,'crm_excel_modified_time'),lastOperationalSync:await getSetting(env,'last_operational_sync'),lastOperationalResult:JSON.parse((await getSetting(env,'last_operational_result'))||'null')});
     }
     if (req.method !== 'PUT') return reply({error:'Método no permitido'},405);
     const b = await req.json<{id?:unknown;section?:unknown;data?:unknown;version?:unknown}>();
@@ -61,31 +61,32 @@ export async function importCrmExcel(env:Env,email:string) {
   const fileId=env.CRM_DRIVE_FILE_ID; if(!fileId) throw new Error('No está configurado el Excel CRM de Drive.');
   const meta=await driveBinaryMetadata(env,fileId);
   if(meta.mimeType!=='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') throw new Error('El CRM de Drive no es un archivo XLSX.');
-  const bytes=await driveDownloadBytes(env,fileId); let imported=0;
+  const bytes=await driveDownloadBytes(env,fileId); let imported=0,changed=0;
   for(const section of ['visits','accompaniments'] as CrmSection[]) {
     const parsed=readSheet(bytes,sheetFor[section]); const statements=[];
+    const existingRows=(await env.DB.prepare('SELECT id,data,version,synced_version,source_row FROM crm_records WHERE section=?').bind(section).all<{id:string;data:string;version:number;synced_version:number;source_row:number|null}>()).results;
+    const byId=new Map(existingRows.map(x=>[x.id,x])),byRow=new Map(existingRows.filter(x=>x.source_row).map(x=>[x.source_row!,x]));
     for(const item of parsed.data) {
       const data:Record<string,string>={};
       for(const field of crmFields[section]) data[field]=displayValue(field,item.values[field]||'');
       if(!data.Fecha||!data.Delegado||(section==='visits'&&!data.Cliente)) continue;
       const rawId=item.values.ID||`${section}-${data.Fecha}-${data.Delegado}-${data.Cliente||data['Ruta / zona']}-${item.row}`;
-      const id=safeId(item.values.ID||'')||`xlsx-${hash(rawId)}`;
-      statements.push(env.DB.prepare(`INSERT INTO crm_records(id,section,data,version,updated_at,updated_by,synced_version,source_row) VALUES(?,?,?,1,?,?,1,?) ON CONFLICT(id) DO UPDATE SET source_row=COALESCE(crm_records.source_row,excluded.source_row)`).bind(id,section,JSON.stringify(data),new Date().toISOString(),email,item.row));
+      const id=safeId(item.values.ID||'')||byRow.get(item.row)?.id||`xlsx-${hash(rawId)}`,existing=byId.get(id)||byRow.get(item.row),stamp=new Date().toISOString();
+      if(!existing)statements.push(env.DB.prepare('INSERT INTO crm_records(id,section,data,version,updated_at,updated_by,synced_version,source_row) VALUES(?,?,?,1,?,?,1,?)').bind(id,section,JSON.stringify(data),stamp,email,item.row));
+      else if(existing.version===existing.synced_version){const preserved=JSON.parse(existing.data)as Record<string,string>;for(const [key,value]of Object.entries(preserved))if(!(crmFields[section]as readonly string[]).includes(key))data[key]=value;const next=JSON.stringify(data);if(next!==existing.data){const version=existing.version+1;statements.push(env.DB.prepare('UPDATE crm_records SET data=?,version=?,synced_version=?,source_row=?,updated_at=?,updated_by=? WHERE id=?').bind(next,version,version,item.row,stamp,'excel-import',existing.id));changed++;}else if(existing.source_row!==item.row)statements.push(env.DB.prepare('UPDATE crm_records SET source_row=? WHERE id=?').bind(item.row,existing.id));}
+      else if(existing.source_row!==item.row)statements.push(env.DB.prepare('UPDATE crm_records SET source_row=? WHERE id=?').bind(item.row,existing.id));
       imported++;
     }
     for(let i=0;i<statements.length;i+=50) await env.DB.batch(statements.slice(i,i+50));
   }
   await setSetting(env,'crm_excel_modified_time',meta.modifiedTime);
   await setSetting(env,'crm_excel_name',meta.name);
-  return {imported,modifiedTime:meta.modifiedTime,name:meta.name};
+  return {imported,changed,modifiedTime:meta.modifiedTime,name:meta.name};
 }
 
 export async function syncCrmExcel(env:Env) {
   const fileId=env.CRM_DRIVE_FILE_ID; if(!fileId) throw new Error('No está configurado el Excel CRM de Drive.');
-  const importedModified=await getSetting(env,'crm_excel_modified_time');
-  if(!importedModified) throw new Error('Importa primero el Excel para evitar sobrescribir cambios externos.');
   const meta=await driveBinaryMetadata(env,fileId);
-  if(meta.modifiedTime!==importedModified) throw new Error('El Excel ha cambiado en Drive desde la última importación. Impórtalo de nuevo y revisa los cambios.');
   let bytes=await driveDownloadBytes(env,fileId); const synced:{id:string;version:number}[]=[];
   for(const section of ['visits','accompaniments'] as CrmSection[]) {
     const rows=await env.DB.prepare('SELECT id,data,version,source_row FROM crm_records WHERE section=? AND version>synced_version ORDER BY updated_at').bind(section).all<{id:string;data:string;version:number;source_row:number|null}>();

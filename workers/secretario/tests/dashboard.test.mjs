@@ -9,7 +9,9 @@ const compilerOptions={module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022
 const planningJs=ts.transpileModule(planningSource,{compilerOptions}).outputText.replace(/export /g,'');
 const salesUiSource=readFileSync(new URL('../src/salesUi.ts',import.meta.url),'utf8');
 const salesUiJs=ts.transpileModule(salesUiSource,{compilerOptions}).outputText.replace(/export /g,'');
-const js=planningJs+'\n'+salesUiJs+'\n'+ts.transpileModule(source,{compilerOptions}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
+const crmUiSource=readFileSync(new URL('../src/crmUi.ts',import.meta.url),'utf8');
+const crmUiJs=ts.transpileModule(crmUiSource,{compilerOptions}).outputText.replace(/export /g,'');
+const js=planningJs+'\n'+salesUiJs+'\n'+crmUiJs+'\n'+ts.transpileModule(source,{compilerOptions}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
 const {page,appShell}=new Function(js+';return {page,appShell}')();
 test('programming controls only appear for administrator',()=>{
  assert.ok(appShell('info@apdsport.com').includes('id="programming"'));
@@ -48,4 +50,10 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('Falta para igualar YTD'));
  assert.ok(script.includes('monthName(j.latestMonth)'));
  assert.ok(script.includes("/^decrecimiento/i"));
+ assert.ok(script.includes('sales-ytd-status'));
+ assert.ok(script.includes('Sincronizar todo ahora'));
+ assert.ok(script.includes('/api/crm/synchronize'));
+ assert.ok(script.includes('Panel operativo de visitas y acompañamientos'));
+ assert.ok(script.includes('Reglas que aplica Aravitas'));
+ assert.ok(script.includes('Solo martes, miércoles y jueves'));
 });
