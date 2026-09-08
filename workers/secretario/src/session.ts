@@ -15,7 +15,7 @@ import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, ty
 import { buildAgenda, renderAgenda } from './agenda';
 import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
 import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
-import { importPlanningSource, telegramPlanningSummary } from './planningStore';
+import { importPlanningSource, syncOperationalData, telegramPlanningSummary } from './planningStore';
 
 interface State {
   history: ChatMessage[];
@@ -288,6 +288,7 @@ export class SecretarioSession implements DurableObject {
     };
     try {
       const result = await spec.run(action.args, ctx);
+      if(/^(calendar_create|calendar_update|calendar_delete|pharmacy_visit_create)$/.test(action.tool))this.ctx.waitUntil(syncOperationalData(this.env).catch((e)=>console.warn('calendar crm sync',e?.message)));
       const pretty = typeof result === 'string' ? result : JSON.stringify(result);
       state.history.push({ role: 'user', content: `[He confirmado la acción "${action.summary.split('\n')[0]}". Resultado: ${clip(pretty, 400)}]` });
       await this.save();
@@ -314,9 +315,15 @@ export class SecretarioSession implements DurableObject {
             `Puedo: buscar en internet, leer y redactar correos, gestionar agenda y Drive, programar recordatorios y tareas, recordar lo que me cuentas y aprender procedimientos.\n` +
             `Nunca envío, modifico ni borro nada sin que lo confirmes con un botón.\n\n` +
             `Mándame cualquier archivo (PDF, Word, Excel, imágenes, texto...) o enlace y lo guardo en mi base de conocimiento para usarlo después.\n\n` +
-            `Comandos:\n/agenda [hoy|mañana|semana|lunes|12/09] · eventos de todos tus calendarios y tareas\n/docs · documentos que conozco\n/herramientas · herramientas que he creado y credenciales guardadas\n/secreto NOMBRE valor · guardar una credencial cifrada para APIs\n/instrucciones · reglas que me he dado a mí mismo\n/estado · uso de hoy y salud\n/memoria [búsqueda] · qué recuerdo\n/aprende <texto> · guardar un hecho\n/olvida <id> · archivar un recuerdo (con confirmación)\n/skills · habilidades aprendidas\n/tareas · programadas\n/feedback <texto> · corrígeme o refuérzame\n/modo silencio|normal · avisos proactivos\n/nuevo · empezar conversación limpia\n/google · conectar Gmail, Calendar y Drive`,
+            `Comandos:\n/agenda [hoy|mañana|semana|lunes|12/09] · eventos de todos tus calendarios y tareas\n/sincronizar · actualizar Calendarios, panel y CRM XLSX\n/docs · documentos que conozco\n/herramientas · herramientas que he creado y credenciales guardadas\n/secreto NOMBRE valor · guardar una credencial cifrada para APIs\n/instrucciones · reglas que me he dado a mí mismo\n/estado · uso de hoy y salud\n/memoria [búsqueda] · qué recuerdo\n/aprende <texto> · guardar un hecho\n/olvida <id> · archivar un recuerdo (con confirmación)\n/skills · habilidades aprendidas\n/tareas · programadas\n/feedback <texto> · corrígeme o refuérzame\n/modo silencio|normal · avisos proactivos\n/nuevo · empezar conversación limpia\n/google · conectar Gmail, Calendar y Drive`,
         );
         return true;
+      case '/sincronizar': {
+        const p:PendingAction={id:uid('p_'),tool:'crm_synchronize',args:{month:arg},summary:`Sincronizar calendarios, panel y CRM XLSX${arg?` (${arg})`:''}`,createdAt:now()};
+        state.pending[p.id]=p;await this.save();
+        await send(this.env,chatId,'Voy a reconciliar los dos calendarios, el panel y el mismo archivo XLSX de Drive.',{plain:true,keyboard:[[{text:'✅ Confirmar sincronización',data:`ok:${p.id}`},{text:'❌ Cancelar',data:`no:${p.id}`}]]});
+        return true;
+      }
       case '/estado': {
         const [usage, n, gOk, nDocs, nTools] = await Promise.all([
           usageSummary(this.env),

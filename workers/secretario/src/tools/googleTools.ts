@@ -2,10 +2,26 @@ import * as g from '../google';
 import { pharmacyVisitEvent, type PharmacyVisit } from '../pharmacyVisit';
 import { buildAgenda, renderAgenda } from '../agenda';
 import { audit } from '../db';
+import { syncOperationalData } from '../planningStore';
 import { clip, localClock, localParts, localTime, resolveDay } from '../util';
 import { confirm, params, str, num, type ToolSpec } from './types';
 
 export const googleTools: ToolSpec[] = [
+  {
+    def: {
+      name: 'crm_synchronize',
+      description: 'Sincroniza de verdad el CRM operativo conservando el XLSX original: lee primero las pestañas VISITAS y ACOMPAÑAMIENTOS del Excel de Drive, incorpora los eventos de PLANIFICACIÓN y CALENDARIO DE ACOMPAÑAMIENTO DELEGADOS, actualiza el panel y vuelve a escribir el mismo XLSX. No convierte a Google Sheets ni genera CSV. Úsala cuando el usuario pida actualizar, sincronizar o revisar el CRM. Requiere confirmación.',
+      parameters: params({ month: str('Mes solicitado, YYYY-MM. Es informativo: la reconciliación mantiene el histórico y cubre el periodo operativo completo.') }),
+    },
+    dangerous: true,
+    run: async (a, ctx) => {
+      if (!ctx.confirmed) return confirm(`Sincronizar el CRM${a.month ? ` de ${a.month}` : ''}: Excel XLSX, calendario Planificación, calendario de acompañamientos y panel web.`);
+      const result=await syncOperationalData(ctx.env);
+      await audit(ctx.env,ctx.chatId,'crm_synchronize',result,true);
+      if(result.importError||result.syncError)throw new Error([result.importError,result.syncError].filter(Boolean).join(' · '));
+      return {ok:true,formato:'XLSX conservado',eventos_revisados:result.calendarEventsScanned,cambios_calendario:result.changed,cambios_excel_importados:result.excelImported,filas_excel_actualizadas:result.excelSynced,finalizado:result.finished};
+    },
+  },
   {
     def: {
       name: 'pharmacy_visit_create',
@@ -21,7 +37,7 @@ export const googleTools: ToolSpec[] = [
       if (!ctx.confirmed) return confirm(`Crear ${event.summary} el ${event.start}, todo el día, en Planificación.\n${event.description}`);
       const result = await g.calendarCreate(ctx.env, event, ctx.tz);
       await audit(ctx.env, ctx.chatId, 'pharmacy_visit_create', { id: result.id, calendar: targets[0].id, clientId: a.clientId }, true);
-      return { event: result, crmSync: 'pending', note: 'Evento creado. El volcado automático al Excel todavía no está implementado.' };
+      return { event: result, crmSync: 'automatic', note: 'Evento creado. Se incorporará automáticamente al panel y al mismo Excel XLSX; también puedes ejecutar crm_synchronize para hacerlo inmediatamente.' };
     },
   },
   {
