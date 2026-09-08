@@ -56,4 +56,5 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('Panel operativo de visitas y acompañamientos'));
  assert.ok(script.includes('Reglas que aplica Aravitas'));
  assert.ok(script.includes('Solo martes, miércoles y jueves'));
+ assert.match(source,/OTC comprado[\s\S]{0,1000}\+presentationsHtml\+'<\/div>'/);
 });
