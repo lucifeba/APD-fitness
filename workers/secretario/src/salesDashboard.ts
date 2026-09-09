@@ -318,6 +318,14 @@ export function productTrend(
     currentUnits = currentKeys.reduce((n, k) => n + number(months[k]), 0),
     previousUnits = previousKeys.reduce((n, k) => n + number(months[k]), 0),
     projectedUnits = (currentUnits / Math.max(1, currentKeys.length)) * 3,
+    lastMonthUnits = number(months[latestMonth]),
+    previousMonthUnits = number(months[shiftMonth(latestMonth, -1)]),
+    last3Units = Array.from({ length: 3 }, (_, i) =>
+      shiftMonth(latestMonth, i - 2),
+    ).reduce((n, k) => n + number(months[k]), 0),
+    previous3Units = Array.from({ length: 3 }, (_, i) =>
+      shiftMonth(latestMonth, i - 5),
+    ).reduce((n, k) => n + number(months[k]), 0),
     previousHistory = Object.entries(months).some(
       ([key, value]) => key < latestMonth && number(value) > 0,
     );
@@ -337,6 +345,26 @@ export function productTrend(
         .sort()
         .at(-1) || "",
     changePct = previousUnits ? projectedUnits / previousUnits - 1 : null;
+  const trend = (current: number, previous: number) => {
+      const pct = previous ? current / previous - 1 : null;
+      return {
+        current,
+        previous,
+        changePct: pct,
+        status:
+          previous <= 0 && current > 0
+            ? "Nueva compra"
+            : previous > 0 && current <= 0
+              ? "Molécula perdida"
+              : pct !== null && pct > 0.1
+                ? "Crecimiento"
+                : pct !== null && pct < -0.1
+                  ? "Decrecimiento"
+                  : "Estable",
+      };
+    },
+    lastMonthTrend = trend(lastMonthUnits, previousMonthUnits),
+    last3Trend = trend(last3Units, previous3Units);
   const status =
     monthsWithoutPurchase > 0 && previousHistory
       ? "Molécula perdida"
@@ -358,6 +386,8 @@ export function productTrend(
     monthsWithoutPurchase,
     lastPurchaseMonth,
     currentMonths: currentKeys.length,
+    lastMonthTrend,
+    last3Trend,
   };
 }
 export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
@@ -368,6 +398,7 @@ export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
       months: Record<string, number>;
       presentations: Set<string>;
       codes: Set<string>;
+      children: any[];
     }
   >();
   for (const item of items) {
@@ -384,6 +415,7 @@ export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
         months: {},
         presentations: new Set(),
         codes: new Set(),
+        children: [],
       };
       grouped.set(key, row);
     }
@@ -392,6 +424,13 @@ export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
     if (item.presentation) row.presentations.add(clean(item.presentation));
     if (item.nationalCode || item.national_code)
       row.codes.add(clean(item.nationalCode || item.national_code));
+    row.children.push({
+      nationalCode: clean(item.nationalCode || item.national_code),
+      molecule: clean(item.presentation) || clean(item.molecule),
+      presentation: clean(item.presentation),
+      months: item.months || {},
+      ...productTrend(item.months || {}, latestMonth),
+    });
   }
   return [...grouped.values()]
     .map((row) => ({
@@ -399,6 +438,10 @@ export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
       presentations: [...row.presentations],
       codes: [...row.codes],
       presentationCount: row.presentations.size,
+      brand: row.molecule,
+      children: row.children.sort(
+        (a, b) => b.last3Trend.current - a.last3Trend.current,
+      ),
       ...productTrend(row.months, latestMonth),
       total: Object.values(row.months).reduce((a, b) => a + b, 0),
     }))
@@ -1145,9 +1188,9 @@ async function dashboardData(env: Env, url: URL) {
       .bind(...args)
       .all<any>(),
     env.DB.prepare(
-      `SELECT p.*,d.months_json,d.quarters_json,d.status,d.current_avg,d.previous_avg,d.change_pct,d.total_units FROM sales_dashboard_products p JOIN sales_dashboard_product_details d ON d.import_id=p.import_id AND d.national_code=p.national_code WHERE p.import_id=? AND (?='' OR lower(p.brand) LIKE '%'||lower(?)||'%' OR lower(p.presentation) LIKE '%'||lower(?)||'%') AND (?='' OR lower(p.presentation) LIKE '%'||lower(?)||'%' OR lower(p.brand) LIKE '%'||lower(?)||'%' OR lower(p.national_code) LIKE '%'||lower(?)||'%') ORDER BY ABS(COALESCE(d.change_pct,0)) DESC LIMIT 1000`,
+      `SELECT p.*,d.months_json,d.quarters_json,d.status,d.current_avg,d.previous_avg,d.change_pct,d.total_units FROM sales_dashboard_products p JOIN sales_dashboard_product_details d ON d.import_id=p.import_id AND d.national_code=p.national_code WHERE p.import_id=? ORDER BY p.brand,p.presentation LIMIT 1000`,
     )
-      .bind(id, molecule, molecule, molecule, search, search, search, search)
+      .bind(id)
       .all<any>(),
     env.DB.prepare(
       "SELECT DISTINCT brand FROM sales_dashboard_products WHERE import_id=? AND brand<>'' ORDER BY brand",
@@ -1185,20 +1228,7 @@ async function dashboardData(env: Env, url: URL) {
     )
       .bind(id, client)
       .first<any>();
-    clientProducts = parseJson<any[]>(cp?.products_json, []).filter(
-      (p) =>
-        (!molecule ||
-          String(p.brand || "")
-            .toLowerCase()
-            .includes(molecule.toLowerCase()) ||
-          String(p.presentation || "")
-            .toLowerCase()
-            .includes(molecule.toLowerCase())) &&
-        (!search ||
-          `${p.presentation || ""} ${p.brand || ""} ${p.nationalCode || ""}`
-            .toLowerCase()
-            .includes(search.toLowerCase())),
-    );
+    clientProducts = parseJson<any[]>(cp?.products_json, []);
   }
   const products = productRows.results.map((p: any) => ({
       ...p,
@@ -1224,7 +1254,25 @@ async function dashboardData(env: Env, url: URL) {
       rawProducts,
       latestProductMonth,
     );
-  let moleculeProducts = allMoleculeProducts;
+  const contains = (value: unknown, query: string) =>
+      String(value || "")
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    scopedMoleculeProducts = allMoleculeProducts.filter((group) => {
+      const children = Array.isArray(group.children) ? group.children : [];
+      const matchesBrand =
+        !molecule ||
+        contains(group.brand || group.molecule, molecule) ||
+        children.some((child: any) => contains(child.molecule, molecule));
+      const matchesProduct =
+        !search ||
+        contains(group.brand || group.molecule, search) ||
+        children.some((child: any) =>
+          contains(`${child.molecule || ""} ${child.nationalCode || ""}`, search),
+        );
+      return matchesBrand && matchesProduct;
+    });
+  let moleculeProducts = scopedMoleculeProducts;
   if (evolution)
     moleculeProducts = moleculeProducts.filter((x) => x.status === evolution);
   if (inactive)
@@ -1234,9 +1282,9 @@ async function dashboardData(env: Env, url: URL) {
         : x.monthsWithoutPurchase === inactive,
     );
   const productSummary = Object.fromEntries(
-    [...new Set(allMoleculeProducts.map((x) => x.status))].map((status) => [
+    [...new Set(scopedMoleculeProducts.map((x) => x.status))].map((status) => [
       status,
-      allMoleculeProducts.filter((x) => x.status === status).length,
+      scopedMoleculeProducts.filter((x) => x.status === status).length,
     ]),
   ),
     productAlerts = moleculeProducts

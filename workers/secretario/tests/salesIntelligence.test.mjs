@@ -23,6 +23,10 @@ test('product evolution compares monthly run rates instead of partial-quarter to
  assert.equal(growing.currentUnits,45);
  assert.equal(growing.projectedUnits,135);
  assert.equal(growing.changePct,.5);
+ assert.deepEqual(growing.lastMonthTrend,{current:45,previous:30,changePct:.5,status:'Crecimiento'});
+ assert.equal(growing.last3Trend.current,105);
+ assert.equal(growing.last3Trend.previous,30);
+ assert.equal(growing.last3Trend.status,'Crecimiento');
 
  const stable=productTrend({202604:30,202605:30,202606:30,202607:30},'202607');
  assert.equal(stable.status,'Compra estable');
@@ -47,6 +51,9 @@ test('presentation rows aggregate by molecule before interpreting evolution',()=
  assert.equal(rows.length,1);
  assert.equal(rows[0].molecule,'Mol A');
  assert.equal(rows[0].presentationCount,2);
+ assert.equal(rows[0].brand,'Mol A');
+ assert.equal(rows[0].children.length,2);
+ assert.deepEqual(rows[0].children.map(x=>x.nationalCode),['2','1']);
  assert.equal(rows[0].previousUnits,90);
  assert.equal(rows[0].projectedUnits,135);
  assert.equal(rows[0].status,'Aumento de compra');
