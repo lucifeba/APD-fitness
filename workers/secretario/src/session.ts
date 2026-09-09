@@ -16,6 +16,7 @@ import { buildAgenda, renderAgenda } from './agenda';
 import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
 import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
 import { importPlanningSource, syncOperationalData, telegramPlanningSummary } from './planningStore';
+import { ensurePendingDigestTask } from './pendingTaskDigest';
 
 interface State {
   history: ChatMessage[];
@@ -531,6 +532,17 @@ export class SecretarioSession implements DurableObject {
     const ag = await buildAgenda(this.env, this.tz, tomorrow, 1);
     const rendered = renderAgenda(ag, this.tz);
     const owner = this.env.OWNER_NAME || 'Pablo';
+    let pendingDigestNotice = '';
+    if (ag.overdue.length) {
+      try {
+        const digest = await ensurePendingDigestTask(this.env, ag.overdue, p.date, tomorrow);
+        if (digest.created)
+          pendingDigestNotice = `\n\n✅ He creado en Google Tasks (${digest.list}) una tarea de día completo para mañana con las ${digest.count} tareas que siguen pendientes.`;
+      } catch (e: any) {
+        console.warn('resumen de pendientes en Google Tasks', e?.message);
+        pendingDigestNotice = `\n\n⚠️ No he podido crear en Google Tasks el resumen de pendientes: ${clip(String(e?.message || e), 180)}`;
+      }
+    }
     let proposal = '';
     try {
       proposal = await ask(
@@ -546,7 +558,7 @@ export class SecretarioSession implements DurableObject {
     } catch (e: any) {
       console.warn('propuesta parte diario', e?.message);
     }
-    await send(this.env, chatId, `🗓 **Parte de mañana**\n\n${rendered}${proposal ? `\n\n${proposal}` : ''}`);
+    await send(this.env, chatId, `🗓 **Parte de mañana**\n\n${rendered}${pendingDigestNotice}${proposal ? `\n\n${proposal}` : ''}`);
     this.state.history.push({ role: 'assistant', content: `[Parte diario enviado para ${tomorrow}]: ${clip(rendered, 800)}\n${clip(proposal, 600)}` });
     await this.save();
   }
