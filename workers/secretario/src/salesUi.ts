@@ -40,10 +40,12 @@ function syncSalesFilters(j){
   fillSelect($('#sales-client'),salesClientOptions,x=>x.vdl,x=>x.client+' · '+x.classification,'Todas las farmacias');$('#sales-client').value=j.selectedClient;
   const selected=salesClientOptions.find(x=>x.vdl===j.selectedClient),search=$('#sales-client-search');if(search)search.value=selected?selected.client:'';
   const list=$('#molecule-list');list.replaceChildren(...j.molecules.map(x=>Object.assign(document.createElement('option'),{value:x})));
+  const products=$('#product-list');if(products)products.replaceChildren(...(j.productOptions||[]).map(x=>Object.assign(document.createElement('option'),{value:x})));
+  $('#sales-product-sort').value=j.selectedProductSort||'alpha';
   const q=new Map();for(const d of j.delegateDetails)for(const point of d.quarters)q.set(point.quarter,point.quarter);fillSelect($('#sales-quarter'),[...q.values()],x=>x,x=>x,'Último disponible');
 }
 function salesDelegateChanged(){$('#sales-client').value='';const search=$('#sales-client-search');if(search)search.value='';closeSalesClientMatches();loadSalesDashboard()}
-function clearSalesFilters(){$('#sales-delegate').value='';$('#sales-client').value='';const search=$('#sales-client-search');if(search)search.value='';$('#sales-quarter').value='';$('#sales-molecule').value='';$('#sales-product-search').value='';$('#sales-product-evolution').value='';$('#sales-product-inactive').value='';selectedMoleculeTrend='';closeSalesClientMatches();loadSalesDashboard()}
+function clearSalesFilters(){$('#sales-delegate').value='';$('#sales-client').value='';const search=$('#sales-client-search');if(search)search.value='';$('#sales-quarter').value='';$('#sales-molecule').value='';$('#sales-product-search').value='';$('#sales-product-sort').value='alpha';$('#sales-product-evolution').value='';$('#sales-product-inactive').value='';selectedMoleculeTrend='';closeSalesClientMatches();loadSalesDashboard()}
 function statusClass(s){return/^crecimiento|^aumento/i.test(String(s||''))?'growth':/apertura|nueva compra/i.test(String(s||''))?'opening':/detenida|perdida/i.test(String(s||''))?'stopped':/^decrecimiento|^descenso/i.test(String(s||''))?'decline':''}
 function ytdStatusLabel(previous,current){previous=Number(previous||0);current=Number(current||0);if(previous<=0&&current>0)return'Apertura';if(previous>0&&current<=0)return'Compra detenida';if(current>previous)return'Crecimiento';if(current<previous)return'Decrecimiento';return'Estable'}
 function monthName(value){if(!value)return'último mes';const [year,month]=value.split('-'),names=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];return(names[Number(month)-1]||month)+' '+year}

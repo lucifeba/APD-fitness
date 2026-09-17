@@ -54,6 +54,8 @@ test('presentation rows aggregate by molecule before interpreting evolution',()=
  assert.equal(rows[0].brand,'Mol A');
  assert.equal(rows[0].children.length,2);
  assert.deepEqual(rows[0].children.map(x=>x.nationalCode),['2','1']);
+ assert.equal(rows[0].total,135);
+ assert.equal(rows[0].children[0].total,90);
  assert.equal(rows[0].previousUnits,90);
  assert.equal(rows[0].projectedUnits,135);
  assert.equal(rows[0].status,'Aumento de compra');

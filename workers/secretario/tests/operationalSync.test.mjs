@@ -15,6 +15,17 @@ test('operational reconciliation covers Excel, visits and accompaniments',()=>{
  assert.match(source,/calendarList\(env,from,to,1000,cals\.accompaniments\.id\)/);
  assert.match(source,/syncCrmExcel\(env\)/);
  assert.match(source,/last_operational_sync/);
+ assert.match(source,/effectiveByDate\.get\(date\)/);
+ assert.match(source,/isEffectiveVisit\(data\.Efectiva\)/);
+ assert.doesNotMatch(source,/!\/\^\(visita\|farmacia\)\\b\/i\.test\(event\.summary\)/);
+});
+
+test('Telegram accepts screenshots sent as photos or image documents',()=>{
+ const media=readFileSync(new URL('../src/media.ts',import.meta.url),'utf8');
+ assert.match(media,/avif\|bmp\|gif\|heic\|heif\|jpe\?g\|png\|svg\|tiff\?\|webp/);
+ assert.match(session,/isImageAttachment\(d\.mime_type, name\)/);
+ assert.match(session,/lastImage/);
+ assert.match(session,/Puedes preguntarme cualquier detalle/);
 });
 
 test('Ara runs reconciliation every 30 minutes even without a Telegram heartbeat',()=>{

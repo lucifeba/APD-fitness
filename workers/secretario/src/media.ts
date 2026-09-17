@@ -3,6 +3,13 @@ import { estimateNeurons } from './router';
 import { recordUsage } from './db';
 import { toBase64 } from './util';
 
+const IMAGE_EXTENSION = /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|tiff?|webp)$/i;
+
+/** Telegram también permite enviar una imagen como documento, sin MIME fiable. */
+export function isImageAttachment(mime?: string, name?: string): boolean {
+  return /^image\//i.test(String(mime || '')) || IMAGE_EXTENSION.test(String(name || ''));
+}
+
 /** Transcribe audio (ogg/opus de Telegram, mp3, m4a, wav) con Whisper en Workers AI. */
 export async function transcribe(env: Env, bytes: ArrayBuffer, hint?: string): Promise<{ text: string; seconds: number }> {
   const model = env.MODEL_STT || '@cf/openai/whisper-large-v3-turbo';
@@ -23,8 +30,8 @@ export async function describeImage(env: Env, bytes: ArrayBuffer, prompt: string
   const model = env.MODEL_VISION || '@cf/meta/llama-3.2-11b-vision-instruct';
   const r: any = await (env.AI as any).run(model, {
     image: Array.from(new Uint8Array(bytes)),
-    prompt: prompt || 'Describe con detalle esta imagen en español. Si contiene texto, transcríbelo íntegro.',
-    max_tokens: 800,
+    prompt: prompt || 'Analiza esta imagen con detalle en español. Transcribe íntegramente todo el texto visible, conserva cifras, fechas, nombres, tablas y relaciones espaciales, y explica lo relevante para poder responder preguntas posteriores.',
+    max_tokens: 1800,
   });
   const text = String(r?.description ?? r?.response ?? '').trim();
   await recordUsage(env, 'cf', model, 1200, Math.ceil(text.length / 3.5), estimateNeurons(model, 1200, Math.ceil(text.length / 3.5))).catch(() => undefined);

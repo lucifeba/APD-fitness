@@ -429,6 +429,7 @@ export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
       molecule: clean(item.presentation) || clean(item.molecule),
       presentation: clean(item.presentation),
       months: item.months || {},
+      total: Object.values(item.months || {}).reduce<number>((sum, value) => sum + number(value as Cell), 0),
       ...productTrend(item.months || {}, latestMonth),
     });
   }
@@ -1123,6 +1124,7 @@ async function dashboardData(env: Env, url: URL) {
     client = url.searchParams.get("client") || "",
     molecule = url.searchParams.get("molecule") || "",
     search = url.searchParams.get("product") || "",
+    productSort = url.searchParams.get("product_sort") === "units_desc" ? "units_desc" : "alpha",
     evolution = url.searchParams.get("evolution") || "",
     inactive = Number(url.searchParams.get("inactive") || 0),
     filter = delegate ? " AND cod_del=?" : "",
@@ -1281,6 +1283,20 @@ async function dashboardData(env: Env, url: URL) {
         ? x.monthsWithoutPurchase >= 5
         : x.monthsWithoutPurchase === inactive,
     );
+  moleculeProducts = [...moleculeProducts]
+    .map((group) => ({
+      ...group,
+      children: [...(group.children || [])].sort((a: any, b: any) =>
+        productSort === "units_desc"
+          ? Number(b.total || 0) - Number(a.total || 0) || String(a.molecule || "").localeCompare(String(b.molecule || ""), "es")
+          : String(a.molecule || "").localeCompare(String(b.molecule || ""), "es"),
+      ),
+    }))
+    .sort((a, b) =>
+      productSort === "units_desc"
+        ? Number(b.total || 0) - Number(a.total || 0) || String(a.brand || a.molecule).localeCompare(String(b.brand || b.molecule), "es")
+        : String(a.brand || a.molecule).localeCompare(String(b.brand || b.molecule), "es"),
+    );
   const productSummary = Object.fromEntries(
     [...new Set(scopedMoleculeProducts.map((x) => x.status))].map((status) => [
       status,
@@ -1303,6 +1319,7 @@ async function dashboardData(env: Env, url: URL) {
     selectedClient: client,
     selectedEvolution: evolution,
     selectedInactive: inactive,
+    selectedProductSort: productSort,
     delegates: delegates.results,
     clientOptions: clientOptions.results,
     quota: quota.results,
@@ -1322,6 +1339,7 @@ async function dashboardData(env: Env, url: URL) {
     productAlerts,
     purchasePatterns: patternRows.results,
     molecules: moleculeRows.results.map((x) => x.brand),
+    productOptions: [...new Set(allMoleculeProducts.flatMap((x) => (x.children || []).map((child: any) => child.molecule).filter(Boolean)))].sort((a, b) => String(a).localeCompare(String(b), "es")),
     clientDetail,
     clientProducts,
   };

@@ -5,7 +5,7 @@ import { syncReminders } from './reminders';
 import type { ChatMessage, Env, Incoming, PendingAction } from './env';
 import { googleConfigured, oauthStartUrl } from './google';
 import { heartbeat } from './heartbeat';
-import { describeImage, transcribe } from './media';
+import { describeImage, isImageAttachment, transcribe } from './media';
 import { countMemories, listMemories, remember } from './memory';
 import { countDocuments, extractText, ingestDocument, listDocuments } from './knowledge';
 import { ALL_TOOLS, resolveTool } from './tools';
@@ -24,6 +24,7 @@ interface State {
   pending: Record<string, PendingAction>;
   mode: 'normal' | 'silencio';
   lastActivity: string;
+  lastImage?: { analysis: string; title: string; at: string };
 }
 
 const MAX_HISTORY = 24;
@@ -125,11 +126,12 @@ export class SecretarioSession implements DurableObject {
     }
     if (msg.photo?.length) {
       kind = 'photo';
-      const sizes = [...msg.photo].sort((a: any, b: any) => a.width - b.width);
-      const pick = sizes.find((p: any) => p.width >= 640 && (p.file_size ?? 0) < 900_000) ?? sizes[Math.min(sizes.length - 1, 1)];
+      const sizes = [...msg.photo].sort((a: any, b: any) => (b.width * b.height) - (a.width * a.height));
+      const pick = sizes.find((p: any) => (p.file_size ?? 0) <= 20 * 1024 * 1024) ?? sizes[0];
       try {
         const { bytes } = await downloadFile(this.env, pick.file_id);
         const d = await describeImage(this.env, bytes, msg.caption ? `El usuario dice: "${msg.caption}". Describe la imagen con detalle y transcribe cualquier texto.` : '');
+        this.state.lastImage = { analysis: d, title: msg.caption || 'Imagen de Telegram', at: now() };
         parts.push(`[Imagen enviada. Descripción automática]: ${d}`);
         // Toda imagen queda en la base de conocimiento (descripción y texto transcrito).
         try {
@@ -151,6 +153,20 @@ export class SecretarioSession implements DurableObject {
       else {
         try {
           const { bytes } = await downloadFile(this.env, d.file_id);
+          if (isImageAttachment(d.mime_type, name)) {
+            let analysis = '';
+            try {
+              analysis = await describeImage(this.env, bytes, msg.caption ? `Instrucción del usuario: "${msg.caption}". Analiza toda la imagen, transcribe el texto y conserva cifras, nombres y estructura.` : '');
+            } catch (visionError: any) {
+              const converted = await extractText(this.env, name, d.mime_type, bytes);
+              analysis = converted.text;
+              console.warn('vision fallback', visionError?.message);
+            }
+            this.state.lastImage = { analysis, title: name, at: now() };
+            const doc = await ingestDocument(this.env, { title: name.replace(/\.[a-z0-9]+$/i, ''), text: analysis, source: 'telegram-image', mime: d.mime_type });
+            parts.push(`[Imagen ${name} analizada y guardada como ${doc.id}. Puedes preguntarme cualquier detalle de ella.]\n[Análisis visual y texto]:\n${clip(analysis, 14000)}`);
+            return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind: 'photo' };
+          }
           if (/cuadro\s*mando/i.test(name) && /\.xlsx$/i.test(name)) {
             const result = await importSalesDashboard(this.env, bytes, name, 'telegram', String(msg.from?.username || msg.from?.id || chatId));
             parts.push(`[${telegramDashboardSummary(result)}]`);
@@ -186,6 +202,10 @@ export class SecretarioSession implements DurableObject {
   private async converse(chatId: string, incoming: Incoming, source = 'telegram'): Promise<void> {
     const state = await this.load();
     let userText = incoming.text;
+    if (incoming.kind === 'text' && state.lastImage && /\b(imagen|foto|pantallazo|captura|archivo visual|esto)\b/i.test(userText)) {
+      const age = Date.now() - Date.parse(state.lastImage.at);
+      if (age >= 0 && age < 24 * 60 * 60 * 1000) userText = `[Contexto de la última imagen, ${state.lastImage.title}: ${clip(state.lastImage.analysis, 9000)}]\n${userText}`;
+    }
     if (incoming.replyTo) userText = `[Respondiendo a ${incoming.replyTo.fromBot ? 'tu mensaje' : 'un mensaje'}: "${incoming.replyTo.text}"]\n${userText}`;
     state.history.push({ role: 'user', content: userText });
     await this.env.DB.prepare('INSERT INTO conversation_messages(chat_id,role,source,content) VALUES(?,?,?,?)').bind(chatId, 'user', source, userText).run();
