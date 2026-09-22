@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { getSetting, setSetting } from './db';
+import { extractText } from './knowledge';
 import { base64UrlDecode, base64UrlEncode, htmlToText } from './util';
 
 export const SCOPES = [
@@ -416,9 +417,10 @@ export async function driveSearch(env: Env, query: string, max = 10, folderId?: 
   return (j.files ?? []).map((f: any) => ({ id: f.id, name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime, link: f.webViewLink }));
 }
 
-export async function driveRead(env: Env, fileId: string): Promise<{ name: string; mimeType: string; text: string }> {
-  const meta = await gapi<any>(env, `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType`);
+export async function driveRead(env: Env, fileId: string): Promise<{ name: string; mimeType: string; modifiedTime: string; text: string; extraction: string }> {
+  const meta = await gapi<any>(env, `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size`);
   let text = '';
+  let extraction = 'Google Workspace';
   if (meta.mimeType === 'application/vnd.google-apps.document')
     text = await gapi<string>(env, `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text%2Fplain`);
   else if (meta.mimeType === 'application/vnd.google-apps.spreadsheet')
@@ -427,8 +429,14 @@ export async function driveRead(env: Env, fileId: string): Promise<{ name: strin
     text = await gapi<string>(env, `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text%2Fplain`);
   else if (/^text\/|json|csv|xml|markdown/i.test(meta.mimeType))
     text = await gapi<string>(env, `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
-  else text = `[Archivo binario ${meta.mimeType}. No puedo leerlo como texto.]`;
-  return { name: meta.name, mimeType: meta.mimeType, text: typeof text === 'string' ? text : JSON.stringify(text) };
+  else {
+    if (Number(meta.size || 0) > 25 * 1024 * 1024) throw new Error(`El archivo ${meta.name} supera 25 MB. Divídelo o comprímelo para poder procesarlo con seguridad.`);
+    const bytes = await driveDownloadBytes(env, fileId);
+    const converted = await extractText(env, meta.name, meta.mimeType, bytes.buffer as ArrayBuffer);
+    text = converted.text;
+    extraction = converted.how;
+  }
+  return { name: meta.name, mimeType: meta.mimeType, modifiedTime: meta.modifiedTime || '', text: typeof text === 'string' ? text : JSON.stringify(text), extraction };
 }
 
 export async function driveCreateDoc(env: Env, title: string, content: string, folderId?: string): Promise<{ id: string; url: string }> {

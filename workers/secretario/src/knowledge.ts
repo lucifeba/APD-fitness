@@ -141,6 +141,16 @@ export async function ingestDocument(env: Env, doc: { title: string; text: strin
   return { id, title: doc.title, source: doc.source ?? 'tool', mime: doc.mime ?? null, chars: text.length, chunks: chunks.length, summary, created_at: created, facts };
 }
 
+/** Indexa una versión de Drive una sola vez y sustituye versiones anteriores del mismo archivo. */
+export async function ingestDriveDocument(env: Env, file: { id: string; modifiedTime: string; title: string; text: string; mime?: string }): Promise<DocRow & { facts: number; reused?: boolean }> {
+  const prefix=`drive:${file.id}:`,source=`${prefix}${file.modifiedTime||'unknown'}`;
+  const exact=await env.DB.prepare("SELECT id,title,source,mime,chars,chunks,summary,created_at FROM documents WHERE source=? AND status='active' LIMIT 1").bind(source).first<DocRow>();
+  if(exact)return{...exact,facts:0,reused:true};
+  const previous=(await env.DB.prepare("SELECT id FROM documents WHERE source LIKE ? AND status='active'").bind(`${prefix}%`).all<{id:string}>()).results;
+  for(const doc of previous)await forgetDocument(env,doc.id);
+  return ingestDocument(env,{title:file.title,text:file.text,source,mime:file.mime});
+}
+
 /** Descarga una URL y la indexa (HTML, PDF, etc. vía el conversor). */
 export async function ingestUrl(env: Env, url: string, title?: string): Promise<DocRow & { facts: number }> {
   const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 Secretario/1.0', accept: 'text/html,application/pdf,application/json,text/plain,*/*' }, redirect: 'follow' });

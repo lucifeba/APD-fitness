@@ -5,7 +5,7 @@ import { syncReminders } from './reminders';
 import type { ChatMessage, Env, Incoming, PendingAction } from './env';
 import { googleConfigured, oauthStartUrl } from './google';
 import { heartbeat } from './heartbeat';
-import { describeImage, isImageAttachment, transcribe } from './media';
+import { analyzeImage, isImageAttachment, transcribe } from './media';
 import { countMemories, listMemories, remember } from './memory';
 import { countDocuments, extractText, ingestDocument, listDocuments } from './knowledge';
 import { ALL_TOOLS, resolveTool } from './tools';
@@ -130,9 +130,10 @@ export class SecretarioSession implements DurableObject {
       const pick = sizes.find((p: any) => (p.file_size ?? 0) <= 20 * 1024 * 1024) ?? sizes[0];
       try {
         const { bytes } = await downloadFile(this.env, pick.file_id);
-        const d = await describeImage(this.env, bytes, msg.caption ? `El usuario dice: "${msg.caption}". Describe la imagen con detalle y transcribe cualquier texto.` : '');
+        const result = await analyzeImage(this.env, bytes, 'telegram-photo.jpg', 'image/jpeg', msg.caption ? `El usuario dice: "${msg.caption}". Lee el pantallazo completo, transcribe el correo o documento y después interprétalo según su instrucción.` : 'Lee el pantallazo completo, transcribe todo el texto y explica su contenido.');
+        const d=result.text;
         this.state.lastImage = { analysis: d, title: msg.caption || 'Imagen de Telegram', at: now() };
-        parts.push(`[Imagen enviada. Descripción automática]: ${d}`);
+        parts.push(`[Imagen leída correctamente por ${[result.ocr?'OCR':'',result.vision?'visión':''].filter(Boolean).join(' + ')}]: ${d}`);
         // Toda imagen queda en la base de conocimiento (descripción y texto transcrito).
         try {
           const doc = await ingestDocument(this.env, { title: `Foto ${now().slice(0, 16).replace('T', ' ')}${msg.caption ? ` · ${clip(msg.caption, 60)}` : ''}`, text: d, source: 'photo', mime: 'image/jpeg' });
@@ -154,17 +155,11 @@ export class SecretarioSession implements DurableObject {
         try {
           const { bytes } = await downloadFile(this.env, d.file_id);
           if (isImageAttachment(d.mime_type, name)) {
-            let analysis = '';
-            try {
-              analysis = await describeImage(this.env, bytes, msg.caption ? `Instrucción del usuario: "${msg.caption}". Analiza toda la imagen, transcribe el texto y conserva cifras, nombres y estructura.` : '');
-            } catch (visionError: any) {
-              const converted = await extractText(this.env, name, d.mime_type, bytes);
-              analysis = converted.text;
-              console.warn('vision fallback', visionError?.message);
-            }
+            const result=await analyzeImage(this.env,bytes,name,d.mime_type,msg.caption ? `Instrucción del usuario: "${msg.caption}". Lee la imagen completa, transcribe el texto y conserva cifras, nombres y estructura.` : 'Lee la imagen completa, transcribe todo el texto y explica su contenido.');
+            const analysis=result.text;
             this.state.lastImage = { analysis, title: name, at: now() };
             const doc = await ingestDocument(this.env, { title: name.replace(/\.[a-z0-9]+$/i, ''), text: analysis, source: 'telegram-image', mime: d.mime_type });
-            parts.push(`[Imagen ${name} analizada y guardada como ${doc.id}. Puedes preguntarme cualquier detalle de ella.]\n[Análisis visual y texto]:\n${clip(analysis, 14000)}`);
+            parts.push(`[Imagen ${name} leída por ${[result.ocr?'OCR':'',result.vision?'visión':''].filter(Boolean).join(' + ')} y guardada como ${doc.id}. Puedes pedirme que redacte, resuma o responda usando su contenido.]\n[Análisis visual y texto]:\n${clip(analysis, 14000)}`);
             return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind: 'photo' };
           }
           if (/cuadro\s*mando/i.test(name) && /\.xlsx$/i.test(name)) {

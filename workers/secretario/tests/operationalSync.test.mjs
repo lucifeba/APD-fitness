@@ -24,8 +24,10 @@ test('Telegram accepts screenshots sent as photos or image documents',()=>{
  const media=readFileSync(new URL('../src/media.ts',import.meta.url),'utf8');
  assert.match(media,/avif\|bmp\|gif\|heic\|heif\|jpe\?g\|png\|svg\|tiff\?\|webp/);
  assert.match(session,/isImageAttachment\(d\.mime_type, name\)/);
+ assert.match(session,/analyzeImage\(this\.env/);
  assert.match(session,/lastImage/);
- assert.match(session,/Puedes preguntarme cualquier detalle/);
+ assert.match(session,/Análisis visual y texto/);
+ assert.match(session,/redacte, resuma o responda usando su contenido/);
 });
 
 test('Ara runs reconciliation every 30 minutes even without a Telegram heartbeat',()=>{

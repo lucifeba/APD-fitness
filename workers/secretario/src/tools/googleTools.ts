@@ -2,6 +2,7 @@ import * as g from '../google';
 import { pharmacyVisitEvent, type PharmacyVisit } from '../pharmacyVisit';
 import { buildAgenda, renderAgenda } from '../agenda';
 import { audit } from '../db';
+import { ingestDriveDocument } from '../knowledge';
 import { syncOperationalData } from '../planningStore';
 import { clip, localClock, localParts, localTime, resolveDay } from '../util';
 import { confirm, params, str, num, type ToolSpec } from './types';
@@ -245,12 +246,42 @@ export const googleTools: ToolSpec[] = [
   {
     def: {
       name: 'drive_read',
-      description: 'Lee el texto de un documento, hoja o archivo de texto de Drive.',
+      description: 'Lee directamente cualquier archivo de Drive. Descarga y extrae PDF, Word, Excel, imágenes y otros binarios; aplica OCR cuando el PDF o la imagen están escaneados. Nunca pidas convertir un PDF a Google Docs.',
       parameters: params({ file_id: str('Id del archivo.'), max_chars: num('Por defecto 12000.') }, ['file_id']),
     },
     run: async (a, ctx) => {
       const f = await g.driveRead(ctx.env, String(a.file_id));
-      return { ...f, text: clip(f.text, Number(a.max_chars) || 12000) };
+      return { ...f, text: clip(f.text, Math.min(60000, Number(a.max_chars) || 16000)) };
+    },
+  },
+  {
+    def: {
+      name: 'drive_import_knowledge',
+      description: 'Descarga un PDF, documento, hoja, imagen u otro archivo de Drive, extrae todo su texto (con OCR si hace falta) y lo incorpora de forma permanente a la base de conocimiento para analizarlo y responder preguntas después. Es idempotente: no duplica la misma versión.',
+      parameters: params({ file_id: str('Id del archivo de Drive.') }, ['file_id']),
+    },
+    run: async (a, ctx) => {
+      const fileId=String(a.file_id),f=await g.driveRead(ctx.env,fileId);
+      const doc=await ingestDriveDocument(ctx.env,{id:fileId,modifiedTime:f.modifiedTime,title:f.name,text:f.text,mime:f.mimeType});
+      await audit(ctx.env,ctx.chatId,'drive_import_knowledge',{fileId,title:f.name,docId:doc.id,reused:Boolean(doc.reused)});
+      return{imported:!doc.reused,reused:Boolean(doc.reused),file:f.name,extraction:f.extraction,doc_id:doc.id,fragments:doc.chunks,chars:doc.chars,summary:doc.summary};
+    },
+  },
+  {
+    def: {
+      name: 'drive_folder_import_knowledge',
+      description: 'Procesa en bloque los archivos de una carpeta de Drive: descarga PDF y otros formatos, extrae texto/OCR y los indexa para hacer un análisis conjunto. Úsala cuando el usuario pida analizar una carpeta o varios archivos que contiene. No requiere convertirlos a Google Docs.',
+      parameters: params({ folder_id: str('Id de la carpeta de Drive.'), query: str('Filtro opcional por nombre o contenido.'), max: num('Máximo de archivos, por defecto 12 y máximo 20.') }, ['folder_id']),
+    },
+    run: async (a, ctx) => {
+      const folderId=String(a.folder_id),files=await g.driveSearch(ctx.env,String(a.query||''),Math.min(20,Number(a.max)||12),folderId),results:any[]=[];
+      for(const file of files){
+        if(file.mimeType==='application/vnd.google-apps.folder')continue;
+        try{const read=await g.driveRead(ctx.env,file.id),doc=await ingestDriveDocument(ctx.env,{id:file.id,modifiedTime:read.modifiedTime,title:read.name,text:read.text,mime:read.mimeType});results.push({file:read.name,ok:true,imported:!doc.reused,reused:Boolean(doc.reused),doc_id:doc.id,chars:doc.chars,fragments:doc.chunks,summary:doc.summary});}
+        catch(error){results.push({file:file.name,ok:false,error:error instanceof Error?error.message:String(error)});}
+      }
+      await audit(ctx.env,ctx.chatId,'drive_folder_import_knowledge',{folderId,files:results.length,ok:results.filter(x=>x.ok).length});
+      return{folder_id:folderId,processed:results.length,successful:results.filter(x=>x.ok).length,failed:results.filter(x=>!x.ok).length,documents:results};
     },
   },
   {

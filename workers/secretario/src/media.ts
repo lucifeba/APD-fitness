@@ -1,6 +1,7 @@
 import type { Env } from './env';
 import { estimateNeurons } from './router';
 import { recordUsage } from './db';
+import { extractText } from './knowledge';
 import { toBase64 } from './util';
 
 const IMAGE_EXTENSION = /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|tiff?|webp)$/i;
@@ -34,6 +35,26 @@ export async function describeImage(env: Env, bytes: ArrayBuffer, prompt: string
     max_tokens: 1800,
   });
   const text = String(r?.description ?? r?.response ?? '').trim();
+  if (!text) throw new Error('El modelo de visión no devolvió contenido.');
   await recordUsage(env, 'cf', model, 1200, Math.ceil(text.length / 3.5), estimateNeurons(model, 1200, Math.ceil(text.length / 3.5))).catch(() => undefined);
   return text;
+}
+
+export function mergeImageAnalysis(ocr: string, vision: string): string {
+  const cleanOcr=ocr.trim(),cleanVision=vision.trim();
+  if(cleanOcr&&cleanVision){
+    if(cleanVision.includes(cleanOcr))return cleanVision;
+    return `[Texto extraído por OCR]\n${cleanOcr}\n\n[Interpretación visual]\n${cleanVision}`;
+  }
+  return cleanOcr||cleanVision;
+}
+
+/** Doble vía: OCR documental y visión. Tolera que una falle y exige que al menos una funcione. */
+export async function analyzeImage(env:Env,bytes:ArrayBuffer,name='imagen.jpg',mime='image/jpeg',prompt=''){
+  const errors:string[]=[];let ocr='',vision='';
+  try{vision=await describeImage(env,bytes,prompt);}catch(error){errors.push(`visión: ${error instanceof Error?error.message:String(error)}`);}
+  try{ocr=(await extractText(env,name,mime,bytes)).text;}catch(error){errors.push(`OCR: ${error instanceof Error?error.message:String(error)}`);}
+  const text=mergeImageAnalysis(ocr,vision);
+  if(!text)throw new Error(`No se pudo leer la imagen (${errors.join(' · ')||'sin contenido'}).`);
+  return{text,ocr:Boolean(ocr),vision:Boolean(vision),warnings:errors};
 }
