@@ -3,7 +3,7 @@ import { googleConfigured } from './google';
 import { countMemories, recall, remember } from './memory';
 import { countDocuments, searchKnowledge } from './knowledge';
 import { ask, chat, type Tier } from './router';
-import { allTools } from './tools';
+import { allTools, relevantToolDefs } from './tools';
 import { selfPrompt } from './tools/autonomyTools';
 import { skillIndex } from './tools/skillTools';
 import type { ToolCtx } from './tools/types';
@@ -105,12 +105,24 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   const lastUser = [...opts.history].reverse().find((m) => m.role === 'user')?.content ?? '';
   const googleOk = await googleConfigured(env);
   const system = await systemPrompt(env, { chatId: opts.chatId, tz: opts.tz, query: lastUser.slice(0, 1000), summary: opts.summary, depth });
-  const { defs: tools, lookup } = await allTools(env, googleOk);
+  const { defs: allToolDefs, lookup } = await allTools(env, googleOk);
+  const tools = relevantToolDefs(allToolDefs, lastUser);
   const messages: ChatMessage[] = [{ role: 'system', content: system }, ...opts.history];
   const added: ChatMessage[] = [];
   const pending: PendingAction[] = [];
   const toolsUsed: string[] = [];
   let provider = '';
+  const callModel = async (current: ChatMessage[], currentTools = tools, maxTokens = 1800) => {
+    try {
+      return await chat(env, tier, current, currentTools, maxTokens);
+    } catch (error) {
+      // La cadena rápida usa otros modelos y límites menores: es un último circuito
+      // funcional cuando todos los cerebros de razonamiento están temporalmente caídos.
+      if (tier === 'fast') throw error;
+      console.warn('cadena smart agotada; reintento fast', error instanceof Error ? error.message : error);
+      return chat(env, 'fast', current, currentTools, Math.min(maxTokens, 1200));
+    }
+  };
 
   const ctx: ToolCtx = {
     env,
@@ -128,7 +140,7 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   };
 
   for (let step = 0; step < maxSteps; step++) {
-    const res = await chat(env, tier, messages, tools, 1800);
+    const res = await callModel(messages);
     provider = `${res.provider}/${res.model}`;
     if (!res.toolCalls.length) {
       const final: ChatMessage = { role: 'assistant', content: res.content };
@@ -165,14 +177,14 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
           result = { status: 'pendiente_de_confirmacion', accion: p.summary, nota: 'Dile al usuario en una frase qué harás cuando pulse Confirmar. No vuelvas a llamar a esta herramienta.' };
         }
       }
-      const toolMsg: ChatMessage = { role: 'tool', name: call.name, tool_call_id: call.id, content: clip(typeof result === 'string' ? result : JSON.stringify(result), 14000) };
+      const toolMsg: ChatMessage = { role: 'tool', name: call.name, tool_call_id: call.id, content: clip(typeof result === 'string' ? result : JSON.stringify(result), 7000) };
       messages.push(toolMsg);
       added.push(toolMsg);
     }
   }
   // Sin respuesta final tras el máximo de pasos: pedimos cierre sin herramientas.
   messages.push({ role: 'user', content: 'Has agotado los pasos. Responde ahora con lo que tienes, indicando qué quedó pendiente.' });
-  const res = await chat(env, tier, messages, [], 1200);
+  const res = await callModel(messages, [], 1200);
   added.push({ role: 'assistant', content: res.content });
   return { text: res.content, pending, messages: added, toolsUsed, provider: `${res.provider}/${res.model}` };
 }

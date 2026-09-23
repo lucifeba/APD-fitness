@@ -2,8 +2,10 @@ import type { ChatMessage, ChatResult, Env, ToolCall, ToolDef } from './env';
 import { neuronsToday, recordUsage } from './db';
 import { callChatGPT, chatgptConnected } from './chatgpt';
 import { vaultGet } from './tools/autonomyTools';
+import { compactMessages } from './chatMessages';
 
 let neuronCache: { day: string; value: number; at: number } | null = null;
+const providerCooldown = new Map<string, number>();
 
 async function neuronsUsed(env: Env): Promise<number> {
   const day = new Date().toISOString().slice(0, 10);
@@ -181,38 +183,18 @@ export function parseTextToolCalls(content: string, tools: ToolDef[]): ToolCall[
   return calls;
 }
 
-/** Mensajes en formato Workers AI: las llamadas a herramientas del asistente se serializan en texto. */
-function toWorkersAI(messages: ChatMessage[]): any[] {
-  return messages.map((m) => {
-    if (m.role === 'assistant' && m.tool_calls?.length) {
-      return {
-        role: 'assistant',
-        content:
-          (m.content ? `${m.content}\n` : '') +
-          m.tool_calls.map((c) => `[llamada a ${c.name}: ${JSON.stringify(c.arguments)}]`).join('\n'),
-      };
-    }
-    if (m.role === 'tool') return { role: 'tool', name: m.name ?? 'tool', tool_call_id: m.tool_call_id ?? m.name, content: m.content };
-    return { role: m.role, content: m.content };
-  });
+/** Mensajes compatibles con Workers AI, sin roles de herramienta enlazados. */
+export function toWorkersAI(messages: ChatMessage[], maxChars = 40_000): any[] {
+  return compactMessages(messages, maxChars).map((m) => ({ role: m.role, content: m.content }));
 }
 
-function toOpenAI(messages: ChatMessage[]): any[] {
-  return messages.map((m) => {
-    if (m.role === 'assistant' && m.tool_calls?.length) {
-      return {
-        role: 'assistant',
-        content: m.content || null,
-        tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })),
-      };
-    }
-    if (m.role === 'tool') return { role: 'tool', tool_call_id: m.tool_call_id ?? m.name, content: m.content };
-    return { role: m.role, content: m.content };
-  });
+/** Mensajes compatibles con las APIs estilo OpenAI, también válidos para Gemini. */
+export function toOpenAI(messages: ChatMessage[], maxChars = 40_000): any[] {
+  return compactMessages(messages, maxChars).map((m) => ({ role: m.role, content: m.content }));
 }
 
 async function callWorkersAI(env: Env, model: string, messages: ChatMessage[], tools: ToolDef[], maxTokens: number): Promise<ChatResult> {
-  const body: any = { messages: toWorkersAI(messages), max_tokens: maxTokens, temperature: 0.3 };
+  const body: any = { messages: toWorkersAI(messages), max_tokens: maxTokens, temperature: 0.2 };
   if (tools.length) body.tools = tools.map((t) => ({ type: 'function', function: t }));
   const r: any = await (env.AI as any).run(model, body);
   const raw: any[] = Array.isArray(r?.tool_calls) ? r.tool_calls : Array.isArray(r?.choices?.[0]?.message?.tool_calls) ? r.choices[0].message.tool_calls : [];
@@ -251,7 +233,8 @@ async function callOpenAICompatible(
   tools: ToolDef[],
   maxTokens: number,
 ): Promise<ChatResult> {
-  const body: any = { model: t.model, messages: toOpenAI(messages) };
+  const contextBudget = t.provider === 'groq' ? 24_000 : t.provider === 'openrouter' ? 32_000 : 40_000;
+  const body: any = { model: t.model, messages: toOpenAI(messages, contextBudget) };
   // Los modelos de razonamiento de OpenAI (gpt-5, o-series) rechazan max_tokens y temperature.
   if (t.provider === 'openai') body.max_completion_tokens = maxTokens;
   else {
@@ -290,7 +273,8 @@ async function callOpenAICompatible(
   };
 }
 
-const roughTokens = (messages: ChatMessage[]) => Math.ceil(messages.reduce((n, m) => n + (m.content?.length ?? 0), 0) / 3.5);
+const roughTokens = (messages: ChatMessage[], tools: ToolDef[] = []) =>
+  Math.ceil((messages.reduce((n, m) => n + (m.content?.length ?? 0), 0) + JSON.stringify(tools).length) / 3.5);
 
 /**
  * Elige el primer cerebro disponible de la cadena y salta al siguiente si falla o si Workers AI
@@ -308,9 +292,10 @@ export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools:
   if (!chain.length) throw new Error('No hay ningún proveedor de IA configurado.');
   const budget = Number(env.DAILY_NEURON_BUDGET || 9000);
   const used = await neuronsUsed(env);
-  const est = roughTokens(messages);
+  const est = roughTokens(messages, tools);
   const errors: string[] = [];
-  const ordered = [...chain];
+  const ready = chain.filter((t) => (providerCooldown.get(`${t.provider}:${t.model}`) ?? 0) <= Date.now());
+  const ordered = [...(ready.length ? ready : chain)];
   // Si Workers AI está cerca del límite, lo dejamos al final como último recurso.
   const cfOverBudget = (t: Target) => t.provider === 'cf' && used + estimateNeurons(t.model, est, 600) > budget;
   ordered.sort((a, b) => Number(cfOverBudget(a)) - Number(cfOverBudget(b)));
@@ -328,11 +313,13 @@ export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools:
       bumpNeurons(neurons);
       await recordUsage(env, t.provider, t.model, inTok, outTok, neurons);
       if (!res.content && !res.toolCalls.length) throw new Error('respuesta vacía');
+      providerCooldown.delete(`${t.provider}:${t.model}`);
       return res;
     } catch (e: any) {
       const msg = `${t.provider}/${t.model}: ${String(e?.message ?? e).slice(0, 400)}`;
       console.warn('cerebro falló', msg);
       errors.push(msg);
+      providerCooldown.set(`${t.provider}:${t.model}`, Date.now() + 2 * 60_000);
       await recordUsage(env, t.provider, t.model, 0, 0, 0, true).catch(() => undefined);
     }
   }

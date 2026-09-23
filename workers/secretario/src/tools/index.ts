@@ -8,6 +8,7 @@ import { skillTools } from './skillTools';
 import { systemTools } from './systemTools';
 import type { ToolSpec } from './types';
 import { webTools } from './web';
+export { relevantToolDefs } from '../toolSelection';
 
 export const ALL_TOOLS: ToolSpec[] = [...systemTools, ...webTools, ...memoryTools, ...knowledgeTools, ...scheduleTools, ...skillTools, ...autonomyTools, ...googleTools];
 const byName = new Map(ALL_TOOLS.map((t) => [t.def.name, t]));

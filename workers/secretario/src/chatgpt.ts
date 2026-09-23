@@ -1,5 +1,6 @@
 import { getSetting, setSetting } from './db';
 import type { ChatMessage, ChatResult, Env, ToolCall, ToolDef } from './env';
+import { compactMessages } from './chatMessages';
 import { vaultDelete, vaultGet, vaultSet } from './tools/autonomyTools';
 import { uid } from './util';
 
@@ -191,18 +192,16 @@ async function validTokens(env: Env): Promise<Tokens> {
 // ---------- Llamadas al modelo (Responses API por el backend de Codex) ----------
 
 function toResponsesInput(messages: ChatMessage[]): { instructions: string; input: any[] } {
-  const instructions = messages
+  const portable = compactMessages(messages, 60_000);
+  const instructions = portable
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
     .join('\n\n');
   const input: any[] = [];
-  for (const m of messages) {
+  for (const m of portable) {
     if (m.role === 'system') continue;
     if (m.role === 'user') input.push({ type: 'message', role: 'user', content: [{ type: 'input_text', text: m.content }] });
-    else if (m.role === 'assistant') {
-      if (m.content) input.push({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: m.content }] });
-      for (const c of m.tool_calls ?? []) input.push({ type: 'function_call', name: c.name, arguments: JSON.stringify(c.arguments ?? {}), call_id: c.id });
-    } else if (m.role === 'tool') input.push({ type: 'function_call_output', call_id: m.tool_call_id ?? m.name ?? uid('call_'), output: m.content });
+    else if (m.role === 'assistant' && m.content) input.push({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: m.content }] });
   }
   return { instructions, input };
 }

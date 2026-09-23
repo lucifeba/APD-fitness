@@ -247,7 +247,11 @@ export class SecretarioSession implements DurableObject {
       clearInterval(typingLoop);
       state.history.pop();
       await this.save();
-      await send(this.env, chatId, `Se me ha atragantado esto: ${clip(String(e?.message ?? e), 600)}\n\nPrueba otra vez o reformula.`, { plain: true });
+      const incident = uid('inc_');
+      const detail = clip(String(e?.message ?? e), 3000);
+      console.error('converse failed', incident, detail);
+      await audit(this.env, chatId, 'agent_error', { incident, detail }, false).catch(() => undefined);
+      await send(this.env, chatId, `No he podido completar esta acción tras activar los sistemas de respaldo. La incidencia ${incident} ha quedado registrada para diagnóstico; no necesitas copiar errores técnicos ni reformular el mensaje.`, { plain: true });
       if (source === 'web') throw e;
     }
   }
