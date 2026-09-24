@@ -22,8 +22,18 @@ test('tool exchanges become portable text without provider-specific signatures',
  const out=messages.portableMessages(input);
  assert.equal(out.some(x=>x.role==='tool'),false);
  assert.equal(out.some(x=>x.tool_calls),false);
+ assert.equal(out[2].role,'user');
+ assert.match(out[2].content,/CONTEXTO INTERNO/);
  assert.match(out[2].content,/knowledge_search/);
- assert.match(out[3].content,/Resultado de herramienta knowledge_search/);
+ assert.match(out[3].content,/Resultado de knowledge_search/);
+ assert.match(out[3].content,/NO MOSTRAR/);
+});
+
+test('internal tool traces are detected and cannot become a visible final answer',()=>{
+ const leaked='[Llamada de herramienta: knowledge_read {"doc_id":"d_1"}]';
+ assert.equal(messages.hasInternalToolTrace(leaked),true);
+ assert.equal(messages.hasInternalToolTrace('Aquí tienes el análisis completo.'),false);
+ assert.equal(messages.stripInternalToolTrace(leaked),'');
 });
 
 test('large histories are compacted before a provider request',()=>{
@@ -52,5 +62,22 @@ test('agent has a fast-chain circuit breaker and bounded tool results',()=>{
  const source=readFileSync(new URL('../src/agent.ts',import.meta.url),'utf8');
  assert.match(source,/cadena smart agotada; reintento fast/);
  assert.match(source,/chat\(env, 'fast'/);
- assert.match(source,/JSON\.stringify\(result\), 7000/);
+ assert.match(source,/clip\(serialized, 7000\)/);
+ assert.match(source,/respuesta interna bloqueada/);
+ assert.match(source,/hasInternalToolTrace\(res\.content\)/);
+});
+
+test('long document analysis is a first-class tool that sends the report directly',()=>{
+ const source=readFileSync(new URL('../src/tools/knowledgeTools.ts',import.meta.url),'utf8');
+ const selectionSource=readFileSync(new URL('../src/toolSelection.ts',import.meta.url),'utf8');
+ assert.match(source,/name: 'knowledge_analyze'/);
+ assert.match(source,/rendered,/);
+ assert.match(source,/readDocument\(ctx\.env, id, 0, meta\.chunks\)/);
+ assert.match(selectionSource,/knowledge_analyze/);
+});
+
+test('each provider is bounded by a timeout before failover',()=>{
+ const source=readFileSync(new URL('../src/router.ts',import.meta.url),'utf8');
+ assert.match(source,/withTimeout\(request, timeoutMs/);
+ assert.match(source,/AI_PROVIDER_TIMEOUT_MS/);
 });

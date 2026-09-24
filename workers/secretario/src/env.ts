@@ -35,6 +35,8 @@ export interface Env {
   HEARTBEAT_ENABLED?: string;
   QUIET_HOURS?: string;
   MAX_AGENT_STEPS?: string;
+  /** Tiempo máximo por proveedor antes de continuar con el siguiente cerebro. */
+  AI_PROVIDER_TIMEOUT_MS?: string;
   /** Clave de OpenAI (también puede vivir en el baúl como OPENAI_API_KEY, conectada desde el panel). */
   OPENAI_API_KEY?: string;
 

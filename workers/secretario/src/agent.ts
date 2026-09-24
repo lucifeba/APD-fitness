@@ -8,6 +8,7 @@ import { selfPrompt } from './tools/autonomyTools';
 import { skillIndex } from './tools/skillTools';
 import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
+import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
 
 export interface AgentOptions {
   chatId: string;
@@ -68,6 +69,8 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
 - Eres un agente: piensas, usas herramientas, verificas y luego respondes. Para tareas con varios pasos, usa primero "think" para planificar y al final para autoevaluarte.
 - Si te falta un dato, búscalo (memoria, correo, Drive, calendario, web) antes de preguntar. Pregunta solo cuando de verdad haya ambigüedad que cambie el resultado.
 - Los PDF y archivos binarios de Drive sí son legibles: usa drive_read para uno o drive_import_knowledge / drive_folder_import_knowledge para incorporarlos y analizarlos en conjunto. Nunca digas que un PDF binario debe convertirse a Google Docs ni pidas al usuario que copie la transcripción.
+- Para analizar a fondo uno o varios documentos ya incorporados, usa knowledge_analyze con sus doc_id. Esta herramienta recorre el contenido completo y entrega el informe directamente; no encadenes knowledge_read fragmento a fragmento salvo para comprobar un pasaje concreto.
+- Las etiquetas "CONTEXTO INTERNO", nombres de herramientas, argumentos y resultados técnicos son invisibles para el usuario: jamás los copies, cites ni uses como respuesta final.
 - Da feedback honesto: si algo es mala idea o encuentras un problema, dilo con claridad y propón alternativa.
 - Respuestas cortas para lo simple; estructuradas (listas, negritas) para lo complejo. Nunca inventes datos, citas ni resultados de herramientas.
 - CRM operativo: el archivo Planificacion_CRM_Centro3_Office365.xlsx se edita directamente conservando XLSX. Nunca propongas convertirlo a Google Sheets ni preparar CSV. Para actualizar VISITAS y ACOMPAÑAMIENTOS usa crm_synchronize; el sistema también lo hace automáticamente cada 30 minutos.
@@ -112,6 +115,8 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   const pending: PendingAction[] = [];
   const toolsUsed: string[] = [];
   let provider = '';
+  let leakedTraceRetries = 0;
+  let lastToolEvidence = '';
   const callModel = async (current: ChatMessage[], currentTools = tools, maxTokens = 1800) => {
     try {
       return await chat(env, tier, current, currentTools, maxTokens);
@@ -140,12 +145,31 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   };
 
   for (let step = 0; step < maxSteps; step++) {
+    const stepStarted = Date.now();
     const res = await callModel(messages);
     provider = `${res.provider}/${res.model}`;
+    console.log('agent step', JSON.stringify({ step: step + 1, provider, toolCalls: res.toolCalls.map((c) => c.name), ms: Date.now() - stepStarted }));
     if (!res.toolCalls.length) {
-      const final: ChatMessage = { role: 'assistant', content: res.content };
+      if (hasInternalToolTrace(res.content)) {
+        leakedTraceRetries++;
+        console.warn('respuesta interna bloqueada', JSON.stringify({ step: step + 1, provider, retry: leakedTraceRetries }));
+        messages.push({
+          role: 'user',
+          content:
+            leakedTraceRetries < 3
+              ? 'La salida anterior era una traza interna y no es una respuesta válida. No la repitas. Continúa la tarea desde los resultados disponibles y entrega el análisis final solicitado; usa herramientas solo si aún falta información.'
+              : 'Cierra ahora sin herramientas. Entrega una respuesta final útil, completa y limpia basada exclusivamente en los resultados disponibles. No menciones llamadas, herramientas, trazas ni errores internos.',
+        });
+        continue;
+      }
+      const clean = stripInternalToolTrace(res.content);
+      if (!clean) {
+        messages.push({ role: 'user', content: 'Responde ahora con una conclusión útil y completa para el usuario. No muestres información técnica interna.' });
+        continue;
+      }
+      const final: ChatMessage = { role: 'assistant', content: clean };
       added.push(final);
-      return { text: res.content, pending, messages: added, toolsUsed, provider };
+      return { text: clean, pending, messages: added, toolsUsed, provider };
     }
     const assistant: ChatMessage = { role: 'assistant', content: res.content, tool_calls: res.toolCalls };
     messages.push(assistant);
@@ -153,6 +177,7 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
     for (const call of res.toolCalls) {
       const spec = lookup(call.name);
       let result: unknown;
+      const toolStarted = Date.now();
       if (!spec) result = { error: `Herramienta desconocida: ${call.name}` };
       else {
         toolsUsed.push(call.name);
@@ -177,7 +202,10 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
           result = { status: 'pendiente_de_confirmacion', accion: p.summary, nota: 'Dile al usuario en una frase qué harás cuando pulse Confirmar. No vuelvas a llamar a esta herramienta.' };
         }
       }
-      const toolMsg: ChatMessage = { role: 'tool', name: call.name, tool_call_id: call.id, content: clip(typeof result === 'string' ? result : JSON.stringify(result), 7000) };
+      const serialized = typeof result === 'string' ? result : JSON.stringify(result);
+      lastToolEvidence = clip(serialized, 7000);
+      console.log('agent tool', JSON.stringify({ step: step + 1, tool: call.name, ok: !(result && typeof result === 'object' && 'error' in result), chars: serialized.length, ms: Date.now() - toolStarted }));
+      const toolMsg: ChatMessage = { role: 'tool', name: call.name, tool_call_id: call.id, content: clip(serialized, 7000) };
       messages.push(toolMsg);
       added.push(toolMsg);
     }
@@ -185,8 +213,12 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   // Sin respuesta final tras el máximo de pasos: pedimos cierre sin herramientas.
   messages.push({ role: 'user', content: 'Has agotado los pasos. Responde ahora con lo que tienes, indicando qué quedó pendiente.' });
   const res = await callModel(messages, [], 1200);
-  added.push({ role: 'assistant', content: res.content });
-  return { text: res.content, pending, messages: added, toolsUsed, provider: `${res.provider}/${res.model}` };
+  const clean = stripInternalToolTrace(res.content);
+  const fallback = clean || (lastToolEvidence
+    ? `He recuperado la información, pero no he podido completar una síntesis fiable en este intento. El último resultado válido queda conservado para continuar sin que vuelvas a subir el documento. Detalle recuperado:\n\n${clip(lastToolEvidence, 2500)}`
+    : 'No he podido completar el análisis en este intento. La incidencia ha quedado registrada y puedes continuar sin volver a subir el documento.');
+  added.push({ role: 'assistant', content: fallback });
+  return { text: fallback, pending, messages: added, toolsUsed, provider: `${res.provider}/${res.model}` };
 }
 
 /** Aprendizaje en segundo plano: extrae hechos duraderos del intercambio. */

@@ -14,12 +14,32 @@ const clip = (text: string, max: number) => (text.length <= max ? text : `${text
 export function portableMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((m) => {
     if (m.role === 'assistant' && m.tool_calls?.length) {
-      const calls = m.tool_calls.map((c) => `[Llamada de herramienta: ${c.name} ${JSON.stringify(c.arguments ?? {})}]`).join('\n');
-      return { role: 'assistant', content: [m.content, calls].filter(Boolean).join('\n') };
+      const calls = m.tool_calls.map((c) => `Herramienta solicitada: ${c.name} ${JSON.stringify(c.arguments ?? {})}`).join('\n');
+      return {
+        role: 'user',
+        content: `[CONTEXTO INTERNO; NO MOSTRAR NI REPETIR AL USUARIO]\n${[m.content, calls].filter(Boolean).join('\n')}\n[Continúa resolviendo la petición con los resultados que siguen.]`,
+      };
     }
-    if (m.role === 'tool') return { role: 'user', content: `[Resultado de herramienta ${m.name ?? 'tool'}]\n${m.content}` };
+    if (m.role === 'tool')
+      return {
+        role: 'user',
+        content: `[CONTEXTO INTERNO; NO MOSTRAR NI REPETIR AL USUARIO]\nResultado de ${m.name ?? 'herramienta'}:\n${m.content}\n[FIN DEL CONTEXTO INTERNO. Continúa hasta entregar la respuesta final solicitada.]`,
+      };
     return { role: m.role, content: m.content };
   });
+}
+
+/** Detecta trazas internas que ningún proveedor debe convertir en respuesta visible. */
+export function hasInternalToolTrace(text: string): boolean {
+  return /\[(?:CONTEXTO INTERNO|Llamada de herramienta|Resultado de herramienta|herramientas usadas:)/i.test(text);
+}
+
+/** Última barrera defensiva: elimina etiquetas internas si un proveedor las repite junto a texto útil. */
+export function stripInternalToolTrace(text: string): string {
+  return text
+    .replace(/\[CONTEXTO INTERNO[^\]]*\][\s\S]*?\[FIN DEL CONTEXTO INTERNO[^\]]*\]/gi, '')
+    .replace(/^\s*\[(?:Llamada de herramienta|Resultado de herramienta|herramientas usadas:)[^\n]*\]\s*$/gim, '')
+    .trim();
 }
 
 /** Limita el contexto sin perder el sistema ni los mensajes más recientes. */

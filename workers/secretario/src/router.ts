@@ -7,6 +7,20 @@ import { compactMessages } from './chatMessages';
 let neuronCache: { day: string; value: number; at: number } | null = null;
 const providerCooldown = new Map<string, number>();
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label}: tiempo de espera agotado tras ${Math.round(ms / 1000)} s`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function neuronsUsed(env: Env): Promise<number> {
   const day = new Date().toISOString().slice(0, 10);
   if (neuronCache && neuronCache.day === day && Date.now() - neuronCache.at < 120_000) return neuronCache.value;
@@ -301,12 +315,14 @@ export async function chat(env: Env, tier: Tier, messages: ChatMessage[], tools:
   ordered.sort((a, b) => Number(cfOverBudget(a)) - Number(cfOverBudget(b)));
   for (const t of ordered) {
     try {
-      const res =
+      const timeoutMs = Math.max(10_000, Math.min(90_000, Number(env.AI_PROVIDER_TIMEOUT_MS || 35_000)));
+      const request =
         t.provider === 'cf'
-          ? await callWorkersAI(env, t.model, messages, tools, maxTokens)
+          ? callWorkersAI(env, t.model, messages, tools, maxTokens)
           : t.provider === 'chatgpt'
-            ? await callChatGPT(env, t.model, messages, tools, maxTokens)
-            : await callOpenAICompatible(env, t, messages, tools, maxTokens);
+            ? callChatGPT(env, t.model, messages, tools, maxTokens)
+            : callOpenAICompatible(env, t, messages, tools, maxTokens);
+      const res = await withTimeout(request, timeoutMs, `${t.provider}/${t.model}`);
       const inTok = res.usage.input || est;
       const outTok = res.usage.output || Math.ceil((res.content.length + JSON.stringify(res.toolCalls).length) / 3.5);
       const neurons = t.provider === 'cf' ? estimateNeurons(t.model, inTok, outTok) : 0;

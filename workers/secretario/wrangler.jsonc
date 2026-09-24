@@ -41,6 +41,7 @@
     "HEARTBEAT_ENABLED": "true",
     "QUIET_HOURS": "23-07",
     "MAX_AGENT_STEPS": "10",
+    "AI_PROVIDER_TIMEOUT_MS": "35000",
     // Panel web: quién puede entrar además del propietario (correos separados por comas).
     "ADMIN_EMAILS": "",
     "BRAND_NAME": "Secretario",
@@ -88,6 +89,7 @@
         "HEARTBEAT_ENABLED": "true",
         "QUIET_HOURS": "22-08",
         "MAX_AGENT_STEPS": "10",
+        "AI_PROVIDER_TIMEOUT_MS": "35000",
         // Reglas de trabajo de la clienta (ver PDF "Análisis de consumo Work").
         "DEFAULT_TASK_LIST": "Araceli",
         "DAILY_BRIEF": "19:30",

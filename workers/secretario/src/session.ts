@@ -175,7 +175,7 @@ export class SecretarioSession implements DurableObject {
           const { text, how } = await extractText(this.env, name, d.mime_type, bytes);
           const doc = await ingestDocument(this.env, { title: name.replace(/\.[a-z0-9]+$/i, ''), text, source: 'telegram', mime: d.mime_type });
           parts.push(
-            `[Archivo ${name} (${how}, ${text.length} caracteres) guardado en la base de conocimiento como ${doc.id} en ${doc.chunks} fragmentos; ${doc.facts} hechos anotados en memoria. Resumen: ${doc.summary}]\n[Inicio del contenido]:\n${clip(text, 12000)}`,
+            `[Archivo ${name} (${how}, ${text.length} caracteres) guardado en la base de conocimiento como ${doc.id} en ${doc.chunks} fragmentos; ${doc.facts} hechos anotados en memoria. Resumen: ${doc.summary}. Para analizarlo completo usa knowledge_analyze con doc_id ${doc.id}; no encadenes lecturas parciales.]\n[Inicio del contenido]:\n${clip(text, 12000)}`,
           );
         } catch (e: any) {
           parts.push(`[No pude procesar el archivo ${name}: ${e.message}]`);
