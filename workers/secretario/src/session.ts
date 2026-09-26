@@ -9,6 +9,7 @@ import { analyzeImage, isImageAttachment, transcribe } from './media';
 import { countMemories, listMemories, remember } from './memory';
 import { countDocuments, extractText, ingestDocument, listDocuments } from './knowledge';
 import { ALL_TOOLS, resolveTool } from './tools';
+import { driveFolderId, importDriveFolderKnowledge } from './tools/googleTools';
 import { normalizeSecretName, vaultList, vaultSet } from './tools/autonomyTools';
 import type { ToolCtx } from './tools/types';
 import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, typing } from './telegram';
@@ -28,6 +29,10 @@ interface State {
 
 const MAX_HISTORY = 24;
 const KEEP_AFTER_SUMMARY = 10;
+
+export function driveFolderUrls(text: string): string[] {
+  return [...new Set([...text.matchAll(/https?:\/\/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/[\w-]+[^\s)]*/gi)].map((m) => m[0]))];
+}
 
 export class SecretarioSession implements DurableObject {
   private state!: State;
@@ -112,6 +117,30 @@ export class SecretarioSession implements DurableObject {
     let kind: Incoming['kind'] = 'text';
     if (msg.text) parts.push(msg.text);
     if (msg.caption) parts.push(msg.caption);
+    const rawText = [msg.text, msg.caption].filter(Boolean).join('\n');
+    for (const folderUrl of driveFolderUrls(rawText).slice(0, 2)) {
+      const folderId = driveFolderId(folderUrl);
+      const storedFolder = await getSetting(this.env, 'transcriptions_drive_folder_id');
+      const recentContext = `${rawText}\n${this.state.history.slice(-4).map((m) => m.content).join('\n')}`;
+      const knownTranscriptions = storedFolder === folderId || /transcripci[oó]n|acompa[ñn]amiento/i.test(recentContext);
+      try {
+        const imported = await importDriveFolderKnowledge(this.env, chatId, folderId, {
+          max: 20,
+          exclude: ['Preguntas Averiguar', 'Optimización del Consejo Farmacéutico'],
+        });
+        const usable = imported.documents.filter((d) => d.ok && d.doc_id);
+        if (knownTranscriptions) {
+          await setSetting(this.env, 'transcriptions_drive_folder_id', folderId);
+          if (await receipt(this.env, `transcriptions-folder:${folderId}`))
+            await remember(this.env, `La carpeta permanente de transcripciones y acompañamientos de Ara es https://drive.google.com/drive/folders/${folderId}. Debe consultarse para análisis de delegados y visitas. Se excluyen Preguntas Averiguar y Optimización del Consejo Farmacéutico.`, 'project', 'drive-folder', 5).catch(() => null);
+        }
+        parts.push(
+          `[CONTEXTO INTERNO: enlace de carpeta Drive detectado y procesado automáticamente. Carpeta ${folderId}; ${imported.successful} documentos disponibles, ${imported.failed} fallos, ${imported.excluded.length} excluidos. Documentos utilizables: ${usable.map((d) => `${d.doc_id} (${d.file})`).join('; ') || 'ninguno'}. Para el análisis completo usa knowledge_analyze con estos doc_id. Si debes crear el informe en Drive, indica google_doc_title y drive_folder_id=${folderId}; la herramienta devolverá el enlace directo. No pidas que vuelvan a pegar el enlace ni que conviertan los PDF.]`,
+        );
+      } catch (error) {
+        parts.push(`[CONTEXTO INTERNO: no se pudo importar la carpeta ${folderId}: ${error instanceof Error ? error.message : String(error)}. Informa del fallo concreto y no finjas que fue procesada.]`);
+      }
+    }
     const media = msg.voice ?? msg.audio ?? msg.video_note;
     if (media) {
       kind = 'voice';

@@ -1,4 +1,5 @@
 import { audit } from '../db';
+import { driveCreateDoc } from '../google';
 import { forgetDocument, getDocument, ingestDocument, ingestUrl, listDocuments, readDocument, searchKnowledge } from '../knowledge';
 import { ask } from '../router';
 import { clip } from '../util';
@@ -79,11 +80,13 @@ export const knowledgeTools: ToolSpec[] = [
     def: {
       name: 'knowledge_analyze',
       description:
-        'Analiza de principio a fin uno o varios documentos ya guardados. Recorre todos sus fragmentos, consolida evidencias y envía directamente al usuario un informe completo. Úsala para transcripciones, reuniones, acompañamientos, formularios, comparativas o análisis conjuntos; evita knowledge_read repetido.',
+        'Analiza de principio a fin uno o varios documentos ya guardados. Recorre todos sus fragmentos, consolida evidencias y envía directamente al usuario un informe completo. Puede crear además un Google Doc en la carpeta indicada y devuelve siempre su enlace directo. Úsala para transcripciones, reuniones, acompañamientos, formularios, comparativas o análisis conjuntos; evita knowledge_read repetido.',
       parameters: params(
         {
           doc_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8, description: 'Ids d_... de los documentos que deben analizarse juntos.' },
           objective: str('Qué análisis, informe o documentos necesita el usuario. Incluye todos sus criterios.'),
+          google_doc_title: str('Opcional: título del Google Doc que debe crearse con el informe final.'),
+          drive_folder_id: str('Opcional: id de la carpeta de Drive donde debe guardarse el Google Doc.'),
         },
         ['doc_ids', 'objective'],
       ),
@@ -132,10 +135,18 @@ export const knowledgeTools: ToolSpec[] = [
         rendered = `## Análisis recuperado\n\nNo se ha podido completar la síntesis final, pero estas son las evidencias extraídas sin perder los documentos:\n\n${notes.join('\n\n')}`;
       }
       rendered = rendered.trim();
-      await audit(ctx.env, ctx.chatId, 'knowledge_analyze', { documents: docs.map((d) => ({ id: d.id, title: d.title })), parts: parts.length, objective: clip(objective, 500) });
+      let googleDoc: { id: string; url: string; title: string } | undefined;
+      if (String(a.google_doc_title || '').trim()) {
+        const title = String(a.google_doc_title).trim();
+        const created = await driveCreateDoc(ctx.env, title, rendered, a.drive_folder_id ? String(a.drive_folder_id) : undefined);
+        googleDoc = { ...created, title };
+        rendered += `\n\n📄 [Abrir el documento en Google Docs](${created.url})`;
+      }
+      await audit(ctx.env, ctx.chatId, 'knowledge_analyze', { documents: docs.map((d) => ({ id: d.id, title: d.title })), parts: parts.length, objective: clip(objective, 500), googleDoc });
       return {
         rendered,
         analyzed: true,
+        google_doc: googleDoc,
         documents: docs.map((d) => ({ id: d.id, title: d.title, fragments: d.total })),
         parts: parts.length,
         nota: 'El informe completo ya se ha enviado directamente al usuario. Responde solo con una confirmación breve o con una pregunta imprescindible.',

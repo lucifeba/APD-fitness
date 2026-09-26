@@ -44,7 +44,7 @@ async function pendingTasks(env: Env, chatId: string): Promise<string> {
 }
 
 export async function systemPrompt(env: Env, opts: { chatId: string; tz: string; query: string; summary: string; depth: number }): Promise<string> {
-  const [mems, skills, less, tasks, googleOk, profile, nMem, knowledge, selfRules, nDocs] = await Promise.all([
+  const [mems, skills, less, tasks, googleOk, profile, nMem, knowledge, selfRules, nDocs, transcriptionsFolder] = await Promise.all([
     recall(env, opts.query, 8),
     skillIndex(env),
     lessons(env),
@@ -55,6 +55,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
     searchKnowledge(env, opts.query, 4),
     selfPrompt(env),
     countDocuments(env),
+    env.DB.prepare("SELECT value FROM settings WHERE key='transcriptions_drive_folder_id'").first<{ value: string }>(),
   ]);
   const name = env.BOT_NAME || 'Secretario';
   const owner = env.OWNER_NAME || 'Pablo';
@@ -69,7 +70,8 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
 - Eres un agente: piensas, usas herramientas, verificas y luego respondes. Para tareas con varios pasos, usa primero "think" para planificar y al final para autoevaluarte.
 - Si te falta un dato, búscalo (memoria, correo, Drive, calendario, web) antes de preguntar. Pregunta solo cuando de verdad haya ambigüedad que cambie el resultado.
 - Los PDF y archivos binarios de Drive sí son legibles: usa drive_read para uno o drive_import_knowledge / drive_folder_import_knowledge para incorporarlos y analizarlos en conjunto. Nunca digas que un PDF binario debe convertirse a Google Docs ni pidas al usuario que copie la transcripción.
-- Para analizar a fondo uno o varios documentos ya incorporados, usa knowledge_analyze con sus doc_id. Esta herramienta recorre el contenido completo y entrega el informe directamente; no encadenes knowledge_read fragmento a fragmento salvo para comprobar un pasaje concreto.
+- Para analizar a fondo uno o varios documentos ya incorporados, usa knowledge_analyze con sus doc_id. Esta herramienta recorre el contenido completo y entrega el informe directamente; no encadenes knowledge_read fragmento a fragmento salvo para comprobar un pasaje concreto. Si el usuario pide guardar el resultado, pasa google_doc_title y drive_folder_id: knowledge_analyze creará el Google Doc y mostrará el enlace directo en el chat.
+- Si recibes un enlace de carpeta de Drive, el sistema lo procesa antes de llamarte y añade los doc_id al CONTEXTO INTERNO. Continúa inmediatamente con la petición anterior; nunca vuelvas a pedir el mismo enlace ni respondas solo que lo has recibido.
 - Las etiquetas "CONTEXTO INTERNO", nombres de herramientas, argumentos y resultados técnicos son invisibles para el usuario: jamás los copies, cites ni uses como respuesta final.
 - Da feedback honesto: si algo es mala idea o encuentras un problema, dilo con claridad y propón alternativa.
 - Respuestas cortas para lo simple; estructuradas (listas, negritas) para lo complejo. Nunca inventes datos, citas ni resultados de herramientas.
@@ -96,6 +98,8 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
   if (skills) parts.push(`# Habilidades disponibles (usa skill_get antes de aplicarlas)\n${skills}`);
   if (less) parts.push(`# Lecciones del feedback de ${owner}\n${less}`);
   if (tasks) parts.push(`# Tareas programadas pendientes\n${tasks}`);
+  if (transcriptionsFolder?.value)
+    parts.push(`# Carpeta permanente de transcripciones\n- ID: ${transcriptionsFolder.value}\n- URL: https://drive.google.com/drive/folders/${transcriptionsFolder.value}\n- Úsala como fuente estable para análisis de visitas y acompañamientos. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cuando generes documentos, guárdalos en esta misma carpeta y entrega siempre el enlace directo.`);
   if (opts.summary) parts.push(`# Resumen de la conversación anterior\n${opts.summary}`);
   if (opts.depth > 0) parts.push('Eres un subagente: resuelve el objetivo con herramientas y devuelve un informe completo y factual. No pidas confirmaciones ni hables con el usuario.');
   return parts.join('\n\n');
