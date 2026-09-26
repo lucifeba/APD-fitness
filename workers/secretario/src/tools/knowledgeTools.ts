@@ -1,11 +1,21 @@
 import { audit } from '../db';
-import { driveCreateDoc } from '../google';
+import { driveCreateDoc, sheetsAppendRows, sheetsReadValues } from '../google';
 import { forgetDocument, getDocument, ingestDocument, ingestUrl, listDocuments, readDocument, searchKnowledge } from '../knowledge';
 import { ask } from '../router';
 import { clip } from '../util';
 import { confirm, num, params, str, type ToolSpec } from './types';
 
 const ANALYSIS_PART_CHARS = 24_000;
+const ANALYSIS_SHEET_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
+
+function val(source: Record<string, any>, ...keys: string[]): any {
+  for (const key of keys) if (source[key] !== undefined && source[key] !== null && source[key] !== '') return source[key];
+  return '';
+}
+
+function formText(title: string, fields: Record<string, any>): string {
+  return `# ${title}\n\n${Object.entries(fields).map(([key, value]) => `## ${key}\n${Array.isArray(value) ? value.join('; ') : String(value ?? '')}`).join('\n\n')}`;
+}
 
 function splitForAnalysis(text: string, max = ANALYSIS_PART_CHARS): string[] {
   const out: string[] = [];
@@ -150,6 +160,84 @@ export const knowledgeTools: ToolSpec[] = [
         documents: docs.map((d) => ({ id: d.id, title: d.title, fragments: d.total })),
         parts: parts.length,
         nota: 'El informe completo ya se ha enviado directamente al usuario. Responde solo con una confirmación breve o con una pregunta imprescindible.',
+      };
+    },
+  },
+  {
+    def: {
+      name: 'analysis_archive',
+      description:
+        'Archiva un análisis de acompañamiento ya realizado. Crea un Google Doc de acompañamiento y un Google Doc por visita en la carpeta del delegado, y añade todas las filas a la base común de Google Sheets. Úsala siempre después de knowledge_analyze para visitas o acompañamientos. No inventes campos ausentes: escribe Pendiente de validar.',
+      parameters: params(
+        {
+          delegate: str('Nombre completo del delegado.'),
+          zone: str('Madrid Sur o Aragón.'),
+          date: str('Fecha YYYY-MM-DD.'),
+          delegate_folder_id: str('ID de la subcarpeta de Drive del delegado.'),
+          source_folder_url: str('URL de la subcarpeta o fuente analizada.'),
+          accompaniment: {
+            type: 'object',
+            description: 'Campos del formulario de acompañamiento. Usa nombres descriptivos: tipo_registro, ruta_planificada, ruta_realizada, visitas_planificadas, visitas_efectivas, motivo_no_efectivas, capacidad_atencion, generacion_oportunidades, comportamiento_general, evidencia_oportunidades, preparacion, apertura, deteccion_necesidades, argumentacion, gestion_objeciones, cierre, fortaleza, ejemplo_fortaleza, area_mejora, evidencia_mejora, freno, objeciones_internas, reaccion_dificultad, trabajo_recomendado, motivacion, seguridad, feedback, motivadores, necesidad_desarrollo, apoyo, prioridad, compromiso, indicadores, conclusion, semaforo.',
+            additionalProperties: true,
+          },
+          visits: {
+            type: 'array',
+            maxItems: 20,
+            description: 'Una entrada por farmacia, con farmacia, interlocutores, puesto, informacion, necesidades, objeciones, puntos_g, no_funciono, funciono, comentarios y transcript_url.',
+            items: { type: 'object', additionalProperties: true },
+          },
+        },
+        ['delegate', 'zone', 'date', 'delegate_folder_id', 'accompaniment', 'visits'],
+      ),
+    },
+    run: async (a, ctx) => {
+      const delegate = String(a.delegate).trim(), zone = String(a.zone).trim(), date = String(a.date).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'La fecha debe ser YYYY-MM-DD.' };
+      const folderId = String(a.delegate_folder_id).trim();
+      const accompaniment = (a.accompaniment && typeof a.accompaniment === 'object' ? a.accompaniment : {}) as Record<string, any>;
+      const visits = (Array.isArray(a.visits) ? a.visits : []).filter((x: any) => x && typeof x === 'object').slice(0, 20) as Record<string, any>[];
+      const slug = delegate.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toUpperCase();
+      const accompanimentId = `AC-${date}-${slug}`;
+      const mainTitle = `Acompañamiento ${delegate} ${date}`;
+      const mainDoc = await driveCreateDoc(ctx.env, mainTitle, formText(mainTitle, { Delegado: delegate, Fecha: date, Zona: zone, ...accompaniment }), folderId);
+
+      const visitDocs: { id: string; pharmacy: string; url: string; source?: string }[] = [];
+      for (let index = 0; index < visits.length; index++) {
+        const visit = visits[index], pharmacy = String(val(visit, 'farmacia', 'pharmacy') || `Visita ${index + 1}`);
+        const title = `Objeciones ${pharmacy} ${date}`;
+        const created = await driveCreateDoc(ctx.env, title, formText(title, { Delegado: delegate, Fecha: date, Farmacia: pharmacy, ...visit }), folderId);
+        visitDocs.push({ id: `VI-${date}-${slug}-${String(index + 1).padStart(2, '0')}`, pharmacy, url: created.url, source: String(val(visit, 'transcript_url', 'transcripcion') || '') });
+      }
+
+      const existingAccomp = new Set((await sheetsReadValues(ctx.env, ANALYSIS_SHEET_ID, 'Acompañamientos!A2:A')).flat().map(String));
+      const existingVisits = new Set((await sheetsReadValues(ctx.env, ANALYSIS_SHEET_ID, "'Visitas y objeciones'!A2:A")).flat().map(String));
+      const sourceFolder = String(a.source_folder_url || `https://drive.google.com/drive/folders/${folderId}`);
+      const accompanimentRow = [
+        accompanimentId, delegate, zone, date, val(accompaniment, 'tipo_registro'), val(accompaniment, 'ruta_planificada'), val(accompaniment, 'ruta_realizada'),
+        val(accompaniment, 'visitas_planificadas'), val(accompaniment, 'visitas_efectivas'), val(accompaniment, 'motivo_no_efectivas'), val(accompaniment, 'capacidad_atencion'),
+        val(accompaniment, 'generacion_oportunidades'), val(accompaniment, 'comportamiento_general'), val(accompaniment, 'evidencia_oportunidades'), val(accompaniment, 'preparacion'),
+        val(accompaniment, 'apertura'), val(accompaniment, 'deteccion_necesidades'), val(accompaniment, 'argumentacion'), val(accompaniment, 'gestion_objeciones'), val(accompaniment, 'cierre'),
+        val(accompaniment, 'fortaleza'), val(accompaniment, 'ejemplo_fortaleza'), val(accompaniment, 'area_mejora'), val(accompaniment, 'evidencia_mejora'), val(accompaniment, 'freno'),
+        val(accompaniment, 'objeciones_internas'), val(accompaniment, 'reaccion_dificultad'), val(accompaniment, 'trabajo_recomendado'), val(accompaniment, 'motivacion'),
+        val(accompaniment, 'seguridad'), val(accompaniment, 'feedback'), val(accompaniment, 'motivadores'), val(accompaniment, 'necesidad_desarrollo'), val(accompaniment, 'apoyo'),
+        val(accompaniment, 'prioridad'), val(accompaniment, 'compromiso'), val(accompaniment, 'indicadores'), val(accompaniment, 'conclusion'), val(accompaniment, 'semaforo'),
+        mainDoc.url, sourceFolder, val(accompaniment, 'estado_validacion') || 'Generado desde transcripciones',
+      ];
+      if (!existingAccomp.has(accompanimentId)) await sheetsAppendRows(ctx.env, ANALYSIS_SHEET_ID, 'Acompañamientos!A:AP', [accompanimentRow]);
+
+      const visitRows = visits.map((visit, index) => {
+        const doc = visitDocs[index];
+        return [doc.id, accompanimentId, delegate, zone, date, doc.pharmacy, val(visit, 'interlocutores'), val(visit, 'puesto'), val(visit, 'informacion'), val(visit, 'necesidades'), val(visit, 'objeciones'), val(visit, 'puntos_g'), val(visit, 'no_funciono'), val(visit, 'funciono'), val(visit, 'comentarios'), doc.url, doc.source || '', sourceFolder, val(visit, 'estado_validacion') || 'Generado desde transcripción'];
+      }).filter((row) => !existingVisits.has(String(row[0])));
+      if (visitRows.length) await sheetsAppendRows(ctx.env, ANALYSIS_SHEET_ID, "'Visitas y objeciones'!A:S", visitRows);
+      await audit(ctx.env, ctx.chatId, 'analysis_archive', { accompanimentId, delegate, date, visits: visitDocs.length, mainDoc: mainDoc.url });
+      return {
+        archived: true,
+        accompaniment_id: accompanimentId,
+        google_sheet: `https://docs.google.com/spreadsheets/d/${ANALYSIS_SHEET_ID}`,
+        accompaniment_document: mainDoc,
+        visit_documents: visitDocs,
+        rendered: `Documentos archivados para ${delegate}.\n\n📄 [Acompañamiento](${mainDoc.url})\n${visitDocs.map((d) => `📄 [${d.pharmacy}](${d.url})`).join('\n')}\n📊 [Abrir la base común](https://docs.google.com/spreadsheets/d/${ANALYSIS_SHEET_ID})`,
       };
     },
   },

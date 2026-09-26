@@ -8,6 +8,7 @@ const knowledge=readFileSync(new URL('../src/knowledge.ts',import.meta.url),'utf
 const agent=readFileSync(new URL('../src/agent.ts',import.meta.url),'utf8');
 const session=readFileSync(new URL('../src/session.ts',import.meta.url),'utf8');
 const knowledgeTools=readFileSync(new URL('../src/tools/knowledgeTools.ts',import.meta.url),'utf8');
+const selection=readFileSync(new URL('../src/toolSelection.ts',import.meta.url),'utf8');
 
 test('Drive downloads and extracts binary PDFs instead of rejecting them',()=>{
  assert.match(google,/const bytes = await driveDownloadBytes\(env, fileId\)/);
@@ -40,4 +41,16 @@ test('the full analysis can create a Google Doc and return its direct link',()=>
  assert.match(knowledgeTools,/driveCreateDoc/);
  assert.match(knowledgeTools,/Abrir el documento en Google Docs/);
  assert.match(agent,/google_doc_title y drive_folder_id/);
+});
+
+test('delegate analyses create form documents and update the shared database',()=>{
+ assert.match(agent,/1jgjreBjijah7AxHuQrSp50Vm13qTGMlA/);
+ assert.match(agent,/1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo/);
+ assert.match(agent,/analysis_archive/);
+ assert.match(selection,/analysis_archive/);
+ assert.match(knowledgeTools,/name: 'analysis_archive'/);
+ assert.match(knowledgeTools,/Acompañamientos!A:AP/);
+ assert.match(knowledgeTools,/Visitas y objeciones/);
+ assert.match(knowledgeTools,/visit_documents/);
+ assert.match(google,/export async function sheetsAppendRows/);
 });

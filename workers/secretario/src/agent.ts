@@ -10,7 +10,8 @@ import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
 import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
 
-const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ';
+const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1jgjreBjijah7AxHuQrSp50Vm13qTGMlA';
+const ANALYSIS_DATABASE_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
 
 export interface AgentOptions {
   chatId: string;
@@ -73,6 +74,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
 - Si te falta un dato, búscalo (memoria, correo, Drive, calendario, web) antes de preguntar. Pregunta solo cuando de verdad haya ambigüedad que cambie el resultado.
 - Los PDF y archivos binarios de Drive sí son legibles: usa drive_read para uno o drive_import_knowledge / drive_folder_import_knowledge para incorporarlos y analizarlos en conjunto. Nunca digas que un PDF binario debe convertirse a Google Docs ni pidas al usuario que copie la transcripción.
 - Para analizar a fondo uno o varios documentos ya incorporados, usa knowledge_analyze con sus doc_id. Esta herramienta recorre el contenido completo y entrega el informe directamente; no encadenes knowledge_read fragmento a fragmento salvo para comprobar un pasaje concreto. Si el usuario pide guardar el resultado, pasa google_doc_title y drive_folder_id: knowledge_analyze creará el Google Doc y mostrará el enlace directo en el chat.
+- En análisis de visitas o acompañamientos, no termines tras knowledge_analyze: llama siempre a analysis_archive con todos los campos que puedan rellenarse del formulario. Esta herramienta crea el documento de acompañamiento, un documento por farmacia y actualiza la base central. Deja como "Pendiente de validar" lo que no esté en la evidencia; nunca lo inventes.
 - Si recibes un enlace de carpeta de Drive, el sistema lo procesa antes de llamarte y añade los doc_id al CONTEXTO INTERNO. Continúa inmediatamente con la petición anterior; nunca vuelvas a pedir el mismo enlace ni respondas solo que lo has recibido.
 - Las etiquetas "CONTEXTO INTERNO", nombres de herramientas, argumentos y resultados técnicos son invisibles para el usuario: jamás los copies, cites ni uses como respuesta final.
 - Da feedback honesto: si algo es mala idea o encuentras un problema, dilo con claridad y propón alternativa.
@@ -101,7 +103,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
   if (less) parts.push(`# Lecciones del feedback de ${owner}\n${less}`);
   if (tasks) parts.push(`# Tareas programadas pendientes\n${tasks}`);
   const transcriptionsFolderId = transcriptionsFolder?.value || DEFAULT_TRANSCRIPTIONS_FOLDER_ID;
-  parts.push(`# Carpeta permanente de transcripciones\n- ID: ${transcriptionsFolderId}\n- URL: https://drive.google.com/drive/folders/${transcriptionsFolderId}\n- Úsala como fuente estable para análisis de visitas y acompañamientos. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cuando generes documentos, guárdalos en esta misma carpeta y entrega siempre el enlace directo.`);
+  parts.push(`# Archivo central de acompañamientos\n- Carpeta general: https://drive.google.com/drive/folders/${transcriptionsFolderId}\n- Base común: https://docs.google.com/spreadsheets/d/${ANALYSIS_DATABASE_ID}\n- Carpetas conocidas: Carlos=${'1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ'}; Patricia=${'1soODUib1sffA24LSkeH9b5KbA7_YCAdm'}; Javier=${'1GZmoT9zwHXAnxjeDNsp902kXcJOagDBE'}. Para Maitane o Jorge, busca primero su subcarpeta dentro de la carpeta general.\n- Usa la subcarpeta del delegado como fuente y destino. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cada análisis debe generar documentos, registrar todos los campos disponibles en la base común y devolver enlaces directos.`);
   if (opts.summary) parts.push(`# Resumen de la conversación anterior\n${opts.summary}`);
   if (opts.depth > 0) parts.push('Eres un subagente: resuelve el objetivo con herramientas y devuelve un informe completo y factual. No pidas confirmaciones ni hables con el usuario.');
   return parts.join('\n\n');

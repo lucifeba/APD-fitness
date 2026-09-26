@@ -462,6 +462,21 @@ export async function driveAppendDoc(env: Env, docId: string, text: string): Pro
   });
 }
 
+export async function sheetsReadValues(env: Env, spreadsheetId: string, range: string): Promise<any[][]> {
+  const result = await gapi<any>(env, `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`);
+  return Array.isArray(result.values) ? result.values : [];
+}
+
+export async function sheetsAppendRows(env: Env, spreadsheetId: string, range: string, rows: unknown[][]): Promise<{ updatedRows: number; updatedRange?: string }> {
+  if (!rows.length) return { updatedRows: 0 };
+  const result = await gapi<any>(env, `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ majorDimension: 'ROWS', values: rows }),
+  });
+  return { updatedRows: Number(result.updates?.updatedRows || rows.length), updatedRange: result.updates?.updatedRange };
+}
+
 export async function driveUploadText(env: Env, name: string, content: string, mime = 'text/plain', folderId?: string): Promise<{ id: string; url: string }> {
   const boundary = 'secretario' + Date.now();
   const meta = JSON.stringify({ name, parents: folderId ? [folderId] : undefined });

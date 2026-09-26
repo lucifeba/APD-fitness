@@ -1,6 +1,6 @@
 import type { ToolDef } from './env';
 
-const COMMON_TOOLS = new Set(['think', 'get_time', 'memory_search', 'knowledge_search', 'knowledge_read', 'knowledge_analyze']);
+const COMMON_TOOLS = new Set(['think', 'get_time', 'memory_search', 'knowledge_search', 'knowledge_read', 'knowledge_analyze', 'analysis_archive']);
 
 /** Selecciona un catálogo pequeño y relevante para no agotar el contexto del modelo. */
 export function relevantToolDefs(defs: ToolDef[], query: string): ToolDef[] {
