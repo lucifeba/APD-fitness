@@ -10,6 +10,8 @@ import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
 import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
 
+const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ';
+
 export interface AgentOptions {
   chatId: string;
   tz: string;
@@ -98,8 +100,8 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
   if (skills) parts.push(`# Habilidades disponibles (usa skill_get antes de aplicarlas)\n${skills}`);
   if (less) parts.push(`# Lecciones del feedback de ${owner}\n${less}`);
   if (tasks) parts.push(`# Tareas programadas pendientes\n${tasks}`);
-  if (transcriptionsFolder?.value)
-    parts.push(`# Carpeta permanente de transcripciones\n- ID: ${transcriptionsFolder.value}\n- URL: https://drive.google.com/drive/folders/${transcriptionsFolder.value}\n- Úsala como fuente estable para análisis de visitas y acompañamientos. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cuando generes documentos, guárdalos en esta misma carpeta y entrega siempre el enlace directo.`);
+  const transcriptionsFolderId = transcriptionsFolder?.value || DEFAULT_TRANSCRIPTIONS_FOLDER_ID;
+  parts.push(`# Carpeta permanente de transcripciones\n- ID: ${transcriptionsFolderId}\n- URL: https://drive.google.com/drive/folders/${transcriptionsFolderId}\n- Úsala como fuente estable para análisis de visitas y acompañamientos. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cuando generes documentos, guárdalos en esta misma carpeta y entrega siempre el enlace directo.`);
   if (opts.summary) parts.push(`# Resumen de la conversación anterior\n${opts.summary}`);
   if (opts.depth > 0) parts.push('Eres un subagente: resuelve el objetivo con herramientas y devuelve un informe completo y factual. No pidas confirmaciones ni hables con el usuario.');
   return parts.join('\n\n');
