@@ -17,6 +17,28 @@ function formText(title: string, fields: Record<string, any>): string {
   return `# ${title}\n\n${Object.entries(fields).map(([key, value]) => `## ${key}\n${Array.isArray(value) ? value.join('; ') : String(value ?? '')}`).join('\n\n')}`;
 }
 
+function archivedReportText(
+  title: string,
+  delegate: string,
+  date: string,
+  zone: string,
+  executiveReport: string,
+  accompaniment: Record<string, any>,
+  visits: Record<string, any>[],
+): string {
+  const report = executiveReport.trim();
+  const appendix = formText('Anexo · Registro estructurado', { Delegado: delegate, Fecha: date, Zona: zone, ...accompaniment });
+  const visitIndex = visits.length
+    ? `\n\n# Índice de visitas analizadas\n\n${visits.map((visit, index) => {
+        const pharmacy = val(visit, 'farmacia', 'pharmacy') || `Visita ${index + 1}`;
+        const outcome = val(visit, 'comentarios', 'siguiente_paso', 'conclusion') || 'Pendiente de validar';
+        return `## ${index + 1}. ${pharmacy}\n${outcome}`;
+      }).join('\n\n')}`
+    : '';
+  if (report) return `# ${title}\n\n${report}\n\n---\n\n${appendix}${visitIndex}`;
+  return `# ${title}\n\n## Conclusión ejecutiva\n${val(accompaniment, 'conclusion') || 'Pendiente de validar'}\n\n## Fortaleza principal\n${val(accompaniment, 'fortaleza') || 'Pendiente de validar'}\n\n## Foco de desarrollo\n${val(accompaniment, 'necesidad_desarrollo', 'area_mejora') || 'Pendiente de validar'}\n\n## Compromiso y próximo paso\n${val(accompaniment, 'compromiso') || 'Pendiente de validar'}\n\n${appendix}${visitIndex}`;
+}
+
 function splitForAnalysis(text: string, max = ANALYSIS_PART_CHARS): string[] {
   const out: string[] = [];
   let rest = text.trim();
@@ -90,7 +112,7 @@ export const knowledgeTools: ToolSpec[] = [
     def: {
       name: 'knowledge_analyze',
       description:
-        'Analiza de principio a fin uno o varios documentos ya guardados. Recorre todos sus fragmentos, consolida evidencias y envía directamente al usuario un informe completo. Puede crear además un Google Doc en la carpeta indicada y devuelve siempre su enlace directo. Úsala para transcripciones, reuniones, acompañamientos, formularios, comparativas o análisis conjuntos; evita knowledge_read repetido.',
+        'Analiza de principio a fin uno o varios documentos ya guardados. Recorre todos sus fragmentos y entrega un informe ejecutivo profundo, con hechos, interpretación, recomendaciones, análisis por visita y plan medible. Puede crear además un Google Doc en la carpeta indicada y devuelve siempre su enlace directo. Úsala para transcripciones, reuniones, acompañamientos, formularios, comparativas o análisis conjuntos; evita knowledge_read repetido.',
       parameters: params(
         {
           doc_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8, description: 'Ids d_... de los documentos que deben analizarse juntos.' },
@@ -121,7 +143,7 @@ export const knowledgeTools: ToolSpec[] = [
           return await ask(
             ctx.env,
             'fast',
-            `Analizas fielmente una parte de un documento para preparar un informe profesional. Extrae únicamente evidencias presentes en el texto y conserva nombres, farmacias, fechas, cifras, afirmaciones literales relevantes, comportamiento comercial, preguntas, escucha, objeciones, cierres, acuerdos, compromisos, fortalezas y áreas de mejora cuando aparezcan. Separa hechos observados de inferencias razonables. No inventes nada y no redactes todavía el informe final. Devuelve notas estructuradas y compactas en español.`,
+            `Analizas fielmente una parte de una transcripción para preparar un informe ejecutivo de acompañamiento comercial. Extrae únicamente evidencias presentes y conserva nombres, farmacias, fechas, cifras, moléculas, presentaciones, unidades, canales, compromisos y pendientes. Para cada conversación identifica: objetivo previo; preparación y datos usados; apertura; preguntas; escucha; necesidad; objeciones; argumentación; propuesta; cierre; siguiente paso; responsable y fecha si constan; qué funcionó; qué limitó el avance. Distingue con etiquetas claras HECHO, INTERPRETACIÓN POSIBLE y DATO PENDIENTE. Detecta también patrones de cartera, uso del tiempo, generación de oportunidades y reacción al feedback. No inventes ni completes silenciosamente datos ausentes y no redactes todavía el informe final. Devuelve notas estructuradas, compactas y suficientemente específicas para sostener cada conclusión.`,
             `Objetivo final del usuario:\n${objective}\n\nDocumento: ${doc.title}\nParte ${part + 1} de ${splitForAnalysis(doc.text).length}:\n\n${text}`,
             1400,
           );
@@ -136,9 +158,23 @@ export const knowledgeTools: ToolSpec[] = [
         rendered = await ask(
           ctx.env,
           'smart',
-          `Eres un experto en dirección comercial farmacéutica, acompañamiento de delegados y análisis de conversaciones. Redacta el entregable final solicitado en español de España, profesional, claro y accionable. Integra todos los documentos, distingue hechos de interpretación, cita evidencias textuales breves cuando aporten valor y no inventes datos. Si el usuario pide material para formularios, crea secciones listas para copiar en cada formulario y una síntesis final del acompañamiento. Incluye conclusiones, fortalezas, áreas de mejora, patrón de objeciones, oportunidades, compromisos y próximos pasos solo cuando estén respaldados. No menciones herramientas, fragmentos ni procesos internos.`,
+          `Eres un experto sénior en dirección comercial farmacéutica, estadística aplicada a ventas y desarrollo de delegados. Redacta un informe ejecutivo profundo en español de España, útil para que una gerente prepare una reunión, tome decisiones y haga seguimiento.
+
+ESTÁNDAR OBLIGATORIO:
+1. Abre con una conclusión ejecutiva clara: qué está ocurriendo, qué impacto tiene y cuál es la prioridad.
+2. Explica alcance, fuentes y límites. Distingue siempre HECHOS OBSERVADOS, INTERPRETACIÓN y RECOMENDACIÓN. Marca como "Pendiente de validar" cualquier dato no demostrado.
+3. Resume actividad documentada separando contactos, visitas comerciales efectivas y prospecciones sin decisor. No confundas presencia física con visita efectiva.
+4. Analiza fortalezas y el principal cuello de botella con ejemplos concretos.
+5. Valora las seis fases AVANZA —Analizar, Vincular, Averiguar, Enorgullecer, Zanjar y Acordar— de 1 a 5, cada una con evidencia y desarrollo recomendado. Aclara que es una lectura diagnóstica de la jornada.
+6. Incluye una sección por farmacia/conversación con: hechos, qué funcionó, qué limitó el avance, interpretación comercial, siguiente paso y criterio de éxito. Si no estuvo la persona decisora, indícalo expresamente.
+7. Extrae patrones transversales: preparación y uso de datos, preguntas/escucha, argumentación, objeciones, cierre/trazabilidad y priorización de cartera.
+8. Elige UN foco principal de desarrollo, formulado como conducta observable y entrenable; no hagas una lista genérica de defectos.
+9. Diseña un plan de 30 días con acciones, evidencia esperada y revisión de la gerente, más indicadores de avance.
+10. Añade preguntas para el próximo acompañamiento y un registro consolidado listo para formularios.
+
+Escribe con criterio, precisión y suficiente profundidad, sin relleno. Las recomendaciones deben derivarse de evidencias. Usa tablas o listas cuando mejoren la lectura, citas literales muy breves solo si aportan valor y nunca inventes métricas, pedidos, nombres o fechas. No menciones herramientas, fragmentos ni procesos internos.`,
           `Objetivo:\n${objective}\n\nDocumentos analizados:\n${docs.map((d) => `- ${d.title}`).join('\n')}\n\nEvidencias consolidadas:\n\n${notes.map((note, i) => `### Bloque ${i + 1}\n${note}`).join('\n\n')}`,
-          3600,
+          5800,
         );
       } catch (error) {
         console.warn('knowledge analyze synthesis', error instanceof Error ? error.message : String(error));
@@ -175,6 +211,8 @@ export const knowledgeTools: ToolSpec[] = [
           date: str('Fecha YYYY-MM-DD.'),
           delegate_folder_id: str('ID de la subcarpeta de Drive del delegado.'),
           source_folder_url: str('URL de la subcarpeta o fuente analizada.'),
+          report_document_url: str('URL del informe ejecutivo creado por knowledge_analyze. Si existe, se reutiliza como documento principal y no se crea un duplicado escueto.'),
+          executive_report: str('Informe ejecutivo completo, solo si no se creó previamente con knowledge_analyze.'),
           accompaniment: {
             type: 'object',
             description: 'Campos del formulario de acompañamiento. Usa nombres descriptivos: tipo_registro, ruta_planificada, ruta_realizada, visitas_planificadas, visitas_efectivas, motivo_no_efectivas, capacidad_atencion, generacion_oportunidades, comportamiento_general, evidencia_oportunidades, preparacion, apertura, deteccion_necesidades, argumentacion, gestion_objeciones, cierre, fortaleza, ejemplo_fortaleza, area_mejora, evidencia_mejora, freno, objeciones_internas, reaccion_dificultad, trabajo_recomendado, motivacion, seguridad, feedback, motivadores, necesidad_desarrollo, apoyo, prioridad, compromiso, indicadores, conclusion, semaforo.',
@@ -183,7 +221,7 @@ export const knowledgeTools: ToolSpec[] = [
           visits: {
             type: 'array',
             maxItems: 20,
-            description: 'Una entrada por farmacia, con farmacia, interlocutores, puesto, informacion, necesidades, objeciones, puntos_g, no_funciono, funciono, comentarios y transcript_url.',
+            description: 'Una entrada por farmacia, con farmacia, interlocutores, puesto, informacion, necesidades, objeciones, puntos_g, no_funciono, funciono, interpretacion, siguiente_paso, criterio_exito, comentarios y transcript_url.',
             items: { type: 'object', additionalProperties: true },
           },
         },
@@ -199,13 +237,31 @@ export const knowledgeTools: ToolSpec[] = [
       const slug = delegate.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toUpperCase();
       const accompanimentId = `AC-${date}-${slug}`;
       const mainTitle = `Acompañamiento ${delegate} ${date}`;
-      const mainDoc = await driveCreateDoc(ctx.env, mainTitle, formText(mainTitle, { Delegado: delegate, Fecha: date, Zona: zone, ...accompaniment }), folderId);
+      const reportUrl = String(a.report_document_url || '').trim();
+      const reportId = reportUrl.match(/\/document\/d\/([\w-]+)/)?.[1];
+      const mainDoc = reportId
+        ? { id: reportId, url: reportUrl }
+        : await driveCreateDoc(ctx.env, mainTitle, archivedReportText(mainTitle, delegate, date, zone, String(a.executive_report || ''), accompaniment, visits), folderId);
 
       const visitDocs: { id: string; pharmacy: string; url: string; source?: string }[] = [];
       for (let index = 0; index < visits.length; index++) {
         const visit = visits[index], pharmacy = String(val(visit, 'farmacia', 'pharmacy') || `Visita ${index + 1}`);
         const title = `Objeciones ${pharmacy} ${date}`;
-        const created = await driveCreateDoc(ctx.env, title, formText(title, { Delegado: delegate, Fecha: date, Farmacia: pharmacy, ...visit }), folderId);
+        const created = await driveCreateDoc(ctx.env, title, formText(title, {
+          Delegado: delegate,
+          Fecha: date,
+          Farmacia: pharmacy,
+          'Hechos observados': val(visit, 'informacion'),
+          'Necesidades detectadas': val(visit, 'necesidades'),
+          'Objeciones detectadas': val(visit, 'objeciones'),
+          'Qué funcionó': val(visit, 'funciono'),
+          'Qué limitó el avance': val(visit, 'no_funciono'),
+          'Interpretación comercial': val(visit, 'interpretacion'),
+          'Siguiente paso': val(visit, 'siguiente_paso', 'comentarios'),
+          'Criterio de éxito': val(visit, 'criterio_exito'),
+          'Estado de validación': val(visit, 'estado_validacion') || 'Generado desde transcripción',
+          ...visit,
+        }), folderId);
         visitDocs.push({ id: `VI-${date}-${slug}-${String(index + 1).padStart(2, '0')}`, pharmacy, url: created.url, source: String(val(visit, 'transcript_url', 'transcripcion') || '') });
       }
 
