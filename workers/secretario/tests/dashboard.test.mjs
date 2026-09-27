@@ -94,3 +94,20 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('Solo martes, miércoles y jueves'));
  assert.match(source,/OTC comprado[\s\S]{0,1000}\+presentationsHtml\+'<\/div>'/);
 });
+test('sales charts keep a high-contrast accessible visual system',()=>{
+ const palette=['#22D3EE','#FACC15','#FB7185','#4ADE80','#C084FC','#F97316','#60A5FA','#A3E635','#FDE047','#2DD4BF'];
+ const luminance=hex=>{
+  const rgb=hex.slice(1).match(/../g).map(value=>Number.parseInt(value,16)/255).map(value=>value<=.03928?value/12.92:((value+.055)/1.055)**2.4);
+  return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2];
+ };
+ const background=luminance('#0B1020');
+ for(const color of palette){
+  assert.ok(salesUiSource.includes(color));
+  assert.ok((luminance(color)+.05)/(background+.05)>=4.5,`${color} must contrast with the chart background`);
+ }
+ assert.ok(salesUiSource.includes("const SALES_CHART_DASH=['','12 7','3 6','15 5 3 5']"));
+ assert.ok(salesUiSource.includes('class="line-halo"'));
+ assert.ok(salesUiSource.includes('class="chart-value"'));
+ assert.ok(salesUiSource.includes('Último: '));
+ assert.ok(salesUiSource.includes('@media(prefers-contrast:more)'));
+});
