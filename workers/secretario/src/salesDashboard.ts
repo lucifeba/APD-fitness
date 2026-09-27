@@ -11,7 +11,14 @@ type QuarterPoint = {
   platform: number;
   push: number;
   directPct: number | null;
+  platformPct: number | null;
   projected?: number;
+  pharmacies200?: number;
+  openingsCount?: number;
+  openingsSales?: number;
+  openingsAverage?: number;
+  target200At85?: number;
+  target200At100?: number;
 };
 export interface DashboardPayload {
   metadata: {
@@ -289,6 +296,7 @@ function quarterSeries(
       platform,
       push,
       directPct: total ? push / total : null,
+      platformPct: total ? platform / total : null,
       ...(i === labels.length - 1 && progress < 0.98
         ? { projected: total / progress }
         : {}),
@@ -317,17 +325,9 @@ export function productTrend(
     ),
     currentUnits = currentKeys.reduce((n, k) => n + number(months[k]), 0),
     previousUnits = previousKeys.reduce((n, k) => n + number(months[k]), 0),
-    projectedUnits = (currentUnits / Math.max(1, currentKeys.length)) * 3,
-    lastMonthUnits = number(months[latestMonth]),
-    previousMonthUnits = number(months[shiftMonth(latestMonth, -1)]),
-    last3Units = Array.from({ length: 3 }, (_, i) =>
-      shiftMonth(latestMonth, i - 2),
-    ).reduce((n, k) => n + number(months[k]), 0),
-    previous3Units = Array.from({ length: 3 }, (_, i) =>
-      shiftMonth(latestMonth, i - 5),
-    ).reduce((n, k) => n + number(months[k]), 0),
+    projectedUnits = currentUnits,
     previousHistory = Object.entries(months).some(
-      ([key, value]) => key < latestMonth && number(value) > 0,
+      ([key, value]) => key < currentKeys[0] && number(value) > 0,
     );
   let monthsWithoutPurchase = 0;
   const observedMonths = Object.keys(months)
@@ -344,31 +344,36 @@ export function productTrend(
         .filter((key) => key <= latestMonth && number(months[key]) > 0)
         .sort()
         .at(-1) || "",
-    changePct = previousUnits ? projectedUnits / previousUnits - 1 : null;
-  const trend = (current: number, previous: number) => {
-      const pct = previous ? current / previous - 1 : null;
-      return {
-        current,
-        previous,
-        changePct: pct,
-        status:
-          previous <= 0 && current > 0
-            ? "Nueva compra"
-            : previous > 0 && current <= 0
-              ? "Molécula perdida"
-              : pct !== null && pct > 0.1
-                ? "Crecimiento"
-                : pct !== null && pct < -0.1
-                  ? "Decrecimiento"
-                  : "Estable",
-      };
-    },
-    lastMonthTrend = trend(lastMonthUnits, previousMonthUnits),
-    last3Trend = trend(last3Units, previous3Units);
+    changePct = previousUnits ? currentUnits / previousUnits - 1 : null,
+    firstCurrentPurchase = currentKeys.find((key) => number(months[key]) > 0) || "",
+    previousPurchase = Object.keys(months)
+      .filter((key) => key < (firstCurrentPurchase || currentKeys[0]) && number(months[key]) > 0)
+      .sort()
+      .at(-1) || "",
+    monthIndex = (key: string) => Number(key.slice(0, 4)) * 12 + Number(key.slice(4, 6)),
+    recoveryGap = firstCurrentPurchase && previousPurchase
+      ? monthIndex(firstCurrentPurchase) - monthIndex(previousPurchase) - 1
+      : 0,
+    recovered = currentUnits > 0 && recoveryGap >= 5,
+    allPreviousQuartersEmpty = !previousHistory,
+    quarterSeries = (() => {
+      const keys = Object.keys(months).filter((key) => /^\d{6}$/.test(key) && key <= latestMonth).sort();
+      const groups = new Map<string, number>();
+      for (const key of keys) {
+        const y = Number(key.slice(0, 4)), m = Number(key.slice(4, 6));
+        const fiscalQuarter = m >= 10 ? 3 : m >= 7 ? 2 : m >= 4 ? 1 : 4;
+        const startYear = fiscalQuarter === 4 ? y - 1 : y;
+        const label = `Q${fiscalQuarter} ${String(startYear).slice(-2)}-${String(startYear + 1).slice(-2)}`;
+        groups.set(label, (groups.get(label) || 0) + number(months[key]));
+      }
+      return [...groups].map(([quarter, units]) => ({ quarter, units }));
+    })();
   const status =
-    monthsWithoutPurchase > 0 && previousHistory
+    recovered
+      ? "Molécula recuperada"
+      : monthsWithoutPurchase >= 5 && previousHistory
       ? "Molécula perdida"
-      : previousUnits <= 0 && currentUnits > 0
+      : allPreviousQuartersEmpty && currentUnits > 0
         ? "Nueva compra"
         : changePct !== null && changePct > 0.1
           ? "Aumento de compra"
@@ -386,8 +391,8 @@ export function productTrend(
     monthsWithoutPurchase,
     lastPurchaseMonth,
     currentMonths: currentKeys.length,
-    lastMonthTrend,
-    last3Trend,
+    recoveryGap,
+    quarterSeries,
   };
 }
 export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
@@ -440,9 +445,7 @@ export function aggregateMoleculeProducts(items: any[], latestMonth: string) {
       codes: [...row.codes],
       presentationCount: row.presentations.size,
       brand: row.molecule,
-      children: row.children.sort(
-        (a, b) => b.last3Trend.current - a.last3Trend.current,
-      ),
+      children: row.children.sort((a, b) => b.total - a.total),
       ...productTrend(row.months, latestMonth),
       total: Object.values(row.months).reduce((a, b) => a + b, 0),
     }))
@@ -605,6 +608,7 @@ export function parseSalesDashboard(
         vigency: clean(row.BI),
         service: clean(row.BJ),
         grossAccumulated: nullableNumber(row.BL),
+        averageDiscount: nullableNumber(row.Q),
       },
       recoveryData = recovery.get(vdl) || {
         total: 0,
@@ -681,7 +685,13 @@ export function parseSalesDashboard(
       }
     }
   }
-  const quota = [...sheet("Cuota", 7, 30).values()]
+  const quotaRows = sheet("Cuota", 7, 30),
+    client200Targets = new Map(
+      [...quotaRows.entries()]
+        .filter(([idx, row]) => idx >= 15 && idx <= 19 && clean(row.D))
+        .map(([, row]) => [normalize(clean(row.D)), { target85: number(row.E), target100: number(row.F) }]),
+    ),
+    quota = [...quotaRows.values()]
       .filter((r) => clean(r.C))
       .map((r) => ({
         codDel: clean(r.C),
@@ -715,9 +725,17 @@ export function parseSalesDashboard(
       ),
       codDel = clean(row.C),
       delegate = clean(row.D),
-      openings = clients.filter(
-        (c) => c.codDel === codDel && c.previousVrn <= 0 && c.currentVrn > 0,
-      );
+      targets = client200Targets.get(normalize(delegate)) || { target85: 0, target100: 0 };
+    series.forEach((point, i) => {
+      point.pharmacies200 = number(row[colRange("W", "AB")[i]]);
+      point.openingsCount = number(row[colRange("AY", "BD")[i]]);
+      point.openingsSales = number(row[colRange("BE", "BJ")[i]]);
+      point.openingsAverage = number(row[colRange("BK", "BP")[i]]);
+      if (i === series.length - 1) {
+        point.target200At85 = targets.target85;
+        point.target200At100 = targets.target100;
+      }
+    });
     cycles.push({
       codDel,
       delegate,
@@ -738,8 +756,8 @@ export function parseSalesDashboard(
       codDel,
       delegate,
       quarters: series,
-      openingsCount: openings.length,
-      openingsSales: openings.reduce((n, c) => n + c.currentVrn, 0),
+      openingsCount: series.at(-1)?.openingsCount || 0,
+      openingsSales: series.at(-1)?.openingsSales || 0,
     });
   }
   const productRows = sheet("Presentaciones por Farmacia", 6, 1000),
