@@ -41,6 +41,10 @@ test('the full analysis can create a Google Doc and return its direct link',()=>
  assert.match(knowledgeTools,/driveCreateDoc/);
  assert.match(knowledgeTools,/Abrir el documento en Google Docs/);
  assert.match(agent,/google_doc_title y drive_folder_id/);
+ assert.match(knowledgeTools,/ESTÁNDAR OBLIGATORIO/);
+ assert.match(knowledgeTools,/AVANZA/);
+ assert.match(knowledgeTools,/plan de 30 días/i);
+ assert.match(knowledgeTools,/HECHOS OBSERVADOS/);
 });
 
 test('delegate analyses create form documents and update the shared database',()=>{
@@ -52,5 +56,9 @@ test('delegate analyses create form documents and update the shared database',()
  assert.match(knowledgeTools,/Acompañamientos!A:AP/);
  assert.match(knowledgeTools,/Visitas y objeciones/);
  assert.match(knowledgeTools,/visit_documents/);
+ assert.match(knowledgeTools,/report_document_url/);
+ assert.match(knowledgeTools,/no se crea un duplicado escueto/);
+ assert.match(knowledgeTools,/Criterio de éxito/);
+ assert.match(agent,/Nunca confundas un contacto sin decisor con una visita comercial efectiva/);
  assert.match(google,/export async function sheetsAppendRows/);
 });
