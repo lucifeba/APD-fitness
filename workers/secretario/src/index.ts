@@ -436,10 +436,15 @@ o, si de verdad necesitas aclaraciones:
     }
   },
 
-  async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(c: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const owner = await ownerChatId(env);
-    const jobs:Promise<unknown>[]=[syncOperationalData(env).catch((e)=>console.error('calendar crm sync',e))];
-    if(owner)jobs.push(sessionFor(env, owner).fetch('https://session/heartbeat', { method: 'POST' }).catch((e) => console.error('heartbeat', e)));
+    const jobs:Promise<unknown>[]=[];
+    if(c.cron==='*/30 * * * *'){
+      jobs.push(syncOperationalData(env).catch((e)=>console.error('calendar crm sync',e)));
+      if(owner)jobs.push(sessionFor(env, owner).fetch('https://session/heartbeat', { method: 'POST' }).catch((e) => console.error('heartbeat', e)));
+    }else if(owner){
+      jobs.push(sessionFor(env, owner).fetch('https://session/reminders', { method: 'POST' }).catch((e) => console.error('reminders', e)));
+    }
     ctx.waitUntil(Promise.all(jobs).then(()=>undefined));
   },
 };

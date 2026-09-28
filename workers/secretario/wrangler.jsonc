@@ -7,8 +7,8 @@
   "observability": { "enabled": true },
   // El sandbox de código (QuickJS) se importa como módulo WebAssembly compilado.
   "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
-  // Latido cada 30 minutos: tareas programadas, correos importantes, agenda próxima, parte diario.
-  "triggers": { "crons": ["*/30 * * * *"] },
+  // Avisos de tareas/eventos cada 5 min; sincronización completa y latido cada 30 min.
+  "triggers": { "crons": ["*/5 * * * *", "*/30 * * * *"] },
   "ai": { "binding": "AI" },
   "d1_databases": [
     {
@@ -58,7 +58,7 @@
     "ara": {
       "name": "secretario-ara",
       "routes": [{ "pattern": "ara.nuviamedia.com", "custom_domain": true }],
-      "triggers": { "crons": ["*/30 * * * *"] },
+      "triggers": { "crons": ["*/5 * * * *", "*/30 * * * *"] },
       "ai": { "binding": "AI" },
       "d1_databases": [
         {

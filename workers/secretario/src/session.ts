@@ -79,6 +79,11 @@ export class SecretarioSession implements DurableObject {
         this.ctx.waitUntil(this.queue);
       } else if (url.pathname === '/heartbeat') {
         await this.runHeartbeat();
+      } else if (url.pathname === '/reminders') {
+        // Sondeo ligero independiente del latido: detecta también tareas creadas
+        // directamente en Google Tasks y conserva el aviso de 15 minutos.
+        const chatId = (await getSetting(this.env, 'owner_chat_id')) || this.env.OWNER_CHAT_ID;
+        if (chatId && (await syncReminders(this.env, chatId, this.tz).catch(() => 0)) > 0) await this.rescheduleAlarm();
       } else if (url.pathname === '/reschedule') {
         await this.rescheduleAlarm();
       } else if (url.pathname === '/notify') {

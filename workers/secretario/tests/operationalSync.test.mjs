@@ -30,9 +30,12 @@ test('Telegram accepts screenshots sent as photos or image documents',()=>{
  assert.match(session,/redacte, resuma o responda usando su contenido/);
 });
 
-test('Ara runs reconciliation every 30 minutes even without a Telegram heartbeat',()=>{
- assert.match(config,/"ara"[\s\S]*?"triggers": \{ "crons": \["\*\/30 \* \* \* \*"\] \}/);
- assert.match(worker,/const jobs:Promise<unknown>\[\]=\[syncOperationalData\(env\)/);
+test('Ara checks reminders every 5 minutes and keeps heavy reconciliation every 30 minutes',()=>{
+ assert.match(config,/"ara"[\s\S]*?"triggers": \{ "crons": \["\*\/5 \* \* \* \*", "\*\/30 \* \* \* \*"\] \}/);
+ assert.match(worker,/c\.cron==='\*\/30 \* \* \* \*'/);
+ assert.match(worker,/fetch\('https:\/\/session\/reminders'/);
+ assert.match(worker,/syncOperationalData\(env\)/);
+ assert.match(session,/url\.pathname === '\/reminders'/);
  assert.doesNotMatch(worker,/if \(!owner\) return;/);
 });
 
