@@ -13,6 +13,7 @@ test('timed Google Tasks are recognised for a fifteen-minute Telegram reminder',
  assert.equal(remindMinutes({}),15);
  assert.equal(taskTime({notes:'Hora: 17:00'}),'17:00');
  assert.equal(taskTime({notes:'Llamar a las 9:05 y preparar documentación'}),'09:05');
+ assert.equal(taskTime({title:'Llamar a farmacia · 12:30'}),'12:30');
  assert.equal(taskTime({notes:'Sin hora concreta'}),null);
 });
 

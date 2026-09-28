@@ -18,9 +18,13 @@ export function remindMinutes(env: Env): number {
   return Number.isFinite(n) && n >= 0 ? n : 15;
 }
 
-/** Hora HH:MM que el usuario dejó en las notas de una tarea (p. ej. "Hora: 17:00" o "a las 17:00"). */
+/**
+ * Hora HH:MM conservada por Aravitas en las notas o escrita en el título.
+ * Google Tasks descarta la parte horaria de `due` en su API, por eso la
+ * persistimos como texto al crear la tarea y aceptamos también el título.
+ */
 export function taskTime(t: GTask): string | null {
-  const m = (t.notes || '').match(/(?:^|\D)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/);
+  const m = `${t.notes || ''}\n${t.title || ''}`.match(/(?:^|\D)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/);
   return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
 }
 
