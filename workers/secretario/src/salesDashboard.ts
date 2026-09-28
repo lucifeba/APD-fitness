@@ -851,7 +851,7 @@ export function parseSalesDashboard(
       productCount: products.length,
       recoveryMatchCount,
     },
-    quota,
+    quota: reconcileQuotaWithOfficialCycles(quota, delegates),
     cycles,
     delegates,
     clients,
@@ -1128,6 +1128,54 @@ function parseJson<T>(value: unknown, fallback: T): T {
     return fallback;
   }
 }
+
+/**
+ * The workbook's Cuota sheet contains cached SUMIF results. Some editions of
+ * the file have a shifted SUMIF range for one delegate, so the cached quarterly
+ * sale can disagree with the official VRN total in Ciclos Cerrados. Keep the
+ * monthly split from Cuota, but reconcile its total, coverage and gap against
+ * the latest official quarter before persisting or returning dashboard data.
+ */
+export function reconcileQuotaWithOfficialCycles(
+  quotaRows: any[],
+  delegateRows: any[],
+) {
+  const officialByDelegate = new Map<string, number>();
+  for (const detail of delegateRows || []) {
+    const codDel = clean(detail.codDel ?? detail.cod_del);
+    const quarters = Array.isArray(detail.quarters)
+      ? detail.quarters
+      : parseJson<any[]>(detail.quarters_json, []);
+    const latest = quarters.at(-1);
+    const total = Number(latest?.total);
+    if (codDel && Number.isFinite(total)) officialByDelegate.set(codDel, total);
+  }
+  return (quotaRows || []).map((row) => {
+    const codDel = clean(row.codDel ?? row.cod_del);
+    const official = officialByDelegate.get(codDel);
+    if (official === undefined) return row;
+    if ("quota_q" in row) {
+      const quota = Number(row.quota_q || 0),
+        sale1 = Number(row.sale_1 || 0),
+        sale2 = Number(row.sale_2 || 0);
+      return {
+        ...row,
+        sale_3: official - sale1 - sale2,
+        coverage_q: quota ? official / quota : 0,
+        gap_q: official - quota,
+      };
+    }
+    const quota = Number(row.quotaQ || 0),
+      sale1 = Number(row.sale1 || 0),
+      sale2 = Number(row.sale2 || 0);
+    return {
+      ...row,
+      sale3: official - sale1 - sale2,
+      coverageQ: quota ? official / quota : 0,
+      gapQ: official - quota,
+    };
+  });
+}
 async function dashboardData(env: Env, url: URL) {
   const imports = (
       await env.DB.prepare(
@@ -1329,6 +1377,14 @@ async function dashboardData(env: Env, url: URL) {
           b.previousUnits - a.previousUnits,
       )
       .slice(0, 10);
+  const parsedDelegateDetails = delegateDetails.results.map((d: any) => ({
+      ...d,
+      quarters: parseJson(d.quarters_json, []),
+    })),
+    reconciledQuota = reconcileQuotaWithOfficialCycles(
+      quota.results,
+      parsedDelegateDetails,
+    );
   return {
     ok: true,
     latest,
@@ -1340,12 +1396,9 @@ async function dashboardData(env: Env, url: URL) {
     selectedProductSort: productSort,
     delegates: delegates.results,
     clientOptions: clientOptions.results,
-    quota: quota.results,
+    quota: reconciledQuota,
     cycles: cycles.results,
-    delegateDetails: delegateDetails.results.map((d: any) => ({
-      ...d,
-      quarters: parseJson(d.quarters_json, []),
-    })),
+    delegateDetails: parsedDelegateDetails,
     classifications: classes.results,
     ytd,
     changes: changes.results,

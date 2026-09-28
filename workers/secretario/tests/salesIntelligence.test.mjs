@@ -7,7 +7,7 @@ const source=readFileSync(new URL('../src/salesDashboard.ts',import.meta.url),'u
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText
   .replace(/^import .*;$/gm,'')
   .replace(/export /g,'');
-const {purchasePattern,productTrend,aggregateMoleculeProducts}=new Function(js+';return {purchasePattern,productTrend,aggregateMoleculeProducts}')();
+const {purchasePattern,productTrend,aggregateMoleculeProducts,reconcileQuotaWithOfficialCycles}=new Function(js+';return {purchasePattern,productTrend,aggregateMoleculeProducts,reconcileQuotaWithOfficialCycles}')();
 
 test('purchase patterns distinguish openings, sustained growth and stopped buying',()=>{
  assert.equal(purchasePattern([0,0,120]),'Apertura');
@@ -58,4 +58,24 @@ test('presentation rows aggregate by molecule before interpreting evolution',()=
  assert.equal(rows[0].previousUnits,90);
  assert.equal(rows[0].projectedUnits,135);
  assert.equal(rows[0].status,'Aumento de compra');
+});
+
+test('quota coverage and gap use the official latest quarter instead of stale cached formulas',()=>{
+ const parsed=reconcileQuotaWithOfficialCycles([
+  {codDel:'BU 1003',quotaQ:151200,sale1:48390.31,sale2:12059.51,sale3:46459.77,coverageQ:.7071,gapQ:-44290.41},
+ ],[
+  {codDel:'BU 1003',quarters:[{quarter:'Q1 26-27',total:136838.08},{quarter:'Q2 26-27',total:111272.62162}]},
+ ]);
+ assert.ok(Math.abs(parsed[0].sale3-50822.80162)<1e-8);
+ assert.equal(parsed[0].coverageQ,111272.62162/151200);
+ assert.equal(parsed[0].gapQ,111272.62162-151200);
+
+ const stored=reconcileQuotaWithOfficialCycles([
+  {cod_del:'BU 1003',quota_q:151200,sale_1:48390.31,sale_2:12059.51,sale_3:46459.77,coverage_q:.7071,gap_q:-44290.41},
+ ],[
+  {cod_del:'BU 1003',quarters_json:JSON.stringify([{quarter:'Q2 26-27',total:111272.62162}])},
+ ]);
+ assert.ok(Math.abs(stored[0].sale_3-50822.80162)<1e-8);
+ assert.equal(stored[0].coverage_q,111272.62162/151200);
+ assert.equal(stored[0].gap_q,111272.62162-151200);
 });
