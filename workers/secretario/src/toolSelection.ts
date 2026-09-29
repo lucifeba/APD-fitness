@@ -15,7 +15,7 @@ export function relevantToolDefs(defs: ToolDef[], query: string): ToolDef[] {
   if (/correo|email|gmail|borrador|mensaje|responde|redacta|asunto/.test(q))
     add('gmail_search', 'gmail_read', 'gmail_draft', 'gmail_send', 'gmail_mark', 'gmail_trash');
   if (/drive|carpeta|archivo|documento|pdf|excel|word|transcripcion|sube|guardar/.test(q))
-    add('drive_search', 'drive_read', 'drive_import_knowledge', 'drive_folder_import_knowledge', 'drive_create_doc', 'drive_append_doc', 'drive_upload_text', 'drive_trash', 'knowledge_add', 'knowledge_list');
+    add('drive_resolve_folder', 'drive_search', 'drive_read', 'drive_import_knowledge', 'drive_folder_import_knowledge', 'drive_create_doc', 'drive_append_doc', 'drive_upload_text', 'drive_trash', 'knowledge_add', 'knowledge_list');
   if (/crm|sincron|visitas|acompanamientos|xlsx|cuadro de mando|dashboard/.test(q)) add('crm_synchronize', 'drive_search', 'drive_read');
   if (/internet|web|busca|investiga|precio|noticia|direccion|restaurante|tiempo|tienda/.test(q)) add('web_search', 'fetch_url', 'http_request', 'run_code');
   if (/calcula|estadistica|analiza|compara|transforma|tabla|formula|datos/.test(q)) add('run_code', 'subtask');
