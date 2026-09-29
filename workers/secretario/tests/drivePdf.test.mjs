@@ -38,6 +38,18 @@ test('a pasted Drive folder URL is processed deterministically and remembered',(
  assert.match(tools,/application\/vnd\.google-apps\.folder/);
 });
 
+test('named Drive subfolders are resolved automatically without asking for links',()=>{
+ assert.match(tools,/name: 'drive_resolve_folder'/);
+ assert.match(tools,/findMentionedDriveFolder/);
+ assert.match(tools,/folderMentionScore/);
+ assert.match(tools,/PERMANENT_DRIVE_ROOT_ID/);
+ assert.match(selection,/drive_resolve_folder/);
+ assert.match(session,/drive_folder_auto_resolve/);
+ assert.match(session,/carpeta resuelta automáticamente/);
+ assert.match(agent,/jamás pidas su enlace/);
+ assert.match(agent,/prefieres que te adjunte el enlace/);
+});
+
 test('the full analysis can create a Google Doc and return its direct link',()=>{
  assert.match(knowledgeTools,/google_doc_title/);
  assert.match(knowledgeTools,/drive_folder_id/);
