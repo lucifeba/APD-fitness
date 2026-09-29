@@ -22,12 +22,31 @@ export async function importDriveFolderKnowledge(
 ): Promise<{ folder_id: string; processed: number; successful: number; failed: number; excluded: string[]; documents: any[] }> {
   const folderId = driveFolderId(folder);
   const max = Math.min(20, Math.max(1, Number(options.max) || 12));
-  const files = await g.driveSearch(env, String(options.query || ''), max, folderId);
+  const query = String(options.query || '').trim();
+  const queue = [folderId], seen = new Set<string>(), files: Array<g.DriveFile & { parentFolderId: string }> = [];
+  while (queue.length && files.length < max && seen.size < 50) {
+    const currentFolderId = queue.shift()!;
+    if (seen.has(currentFolderId)) continue;
+    seen.add(currentFolderId);
+    const children = await g.driveSearch(env, '', 100, currentFolderId);
+    for (const child of children) {
+      if (child.mimeType === 'application/vnd.google-apps.folder') {
+        if (!seen.has(child.id)) queue.push(child.id);
+      }
+    }
+    const candidates = query
+      ? await g.driveSearch(env, query, Math.min(100, max - files.length), currentFolderId)
+      : children;
+    for (const child of candidates) {
+      if (child.mimeType === 'application/vnd.google-apps.folder') continue;
+      files.push({ ...child, parentFolderId: currentFolderId });
+      if (files.length >= max) break;
+    }
+  }
   const exclusions = (options.exclude ?? []).map((x) => x.trim()).filter(Boolean);
   const excluded: string[] = [];
   const results: any[] = [];
   for (const file of files) {
-    if (file.mimeType === 'application/vnd.google-apps.folder') continue;
     if (exclusions.some((term) => file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(term.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()))) {
       excluded.push(file.name);
       continue;
@@ -36,17 +55,17 @@ export async function importDriveFolderKnowledge(
       const source = `drive:${file.id}:${file.modifiedTime || 'unknown'}`;
       const existing = await env.DB.prepare("SELECT id,title,chars,chunks,summary FROM documents WHERE source=? AND status='active' LIMIT 1").bind(source).first<any>();
       if (existing) {
-        results.push({ file: file.name, ok: true, imported: false, reused: true, doc_id: existing.id, chars: existing.chars, fragments: existing.chunks, summary: existing.summary });
+        results.push({ file: file.name, folder_id: file.parentFolderId, ok: true, imported: false, reused: true, doc_id: existing.id, chars: existing.chars, fragments: existing.chunks, summary: existing.summary });
         continue;
       }
       const read = await g.driveRead(env, file.id);
       const doc = await ingestDriveDocument(env, { id: file.id, modifiedTime: read.modifiedTime, title: read.name, text: read.text, mime: read.mimeType });
-      results.push({ file: read.name, ok: true, imported: !doc.reused, reused: Boolean(doc.reused), doc_id: doc.id, chars: doc.chars, fragments: doc.chunks, summary: doc.summary });
+      results.push({ file: read.name, folder_id: file.parentFolderId, ok: true, imported: !doc.reused, reused: Boolean(doc.reused), doc_id: doc.id, chars: doc.chars, fragments: doc.chunks, summary: doc.summary });
     } catch (error) {
-      results.push({ file: file.name, ok: false, error: error instanceof Error ? error.message : String(error) });
+      results.push({ file: file.name, folder_id: file.parentFolderId, ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   }
-  await audit(env, chatId, 'drive_folder_import_knowledge', { folderId, files: results.length, ok: results.filter((x) => x.ok).length, excluded });
+  await audit(env, chatId, 'drive_folder_import_knowledge', { folderId, foldersVisited: seen.size, files: results.length, ok: results.filter((x) => x.ok).length, excluded });
   return { folder_id: folderId, processed: results.length, successful: results.filter((x) => x.ok).length, failed: results.filter((x) => !x.ok).length, excluded, documents: results };
 }
 
@@ -313,7 +332,7 @@ export const googleTools: ToolSpec[] = [
   {
     def: {
       name: 'drive_folder_import_knowledge',
-      description: 'Procesa en bloque los archivos de una carpeta de Drive: descarga PDF y otros formatos, extrae texto/OCR y los indexa para hacer un análisis conjunto. Úsala cuando el usuario pida analizar una carpeta o varios archivos que contiene. No requiere convertirlos a Google Docs.',
+      description: 'Procesa recursivamente los archivos de una carpeta de Drive y todas sus subcarpetas: descarga PDF y otros formatos, extrae texto/OCR y los indexa para hacer un análisis conjunto. Úsala cuando el usuario pida analizar una carpeta raíz o varios archivos que contiene. No requiere convertirlos a Google Docs.',
       parameters: params({ folder_id: str('Id o URL completa de la carpeta de Drive.'), query: str('Filtro opcional por nombre o contenido.'), exclude: str('Opcional: nombres o fragmentos que deben excluirse, separados por |.'), max: num('Máximo de archivos, por defecto 12 y máximo 20.') }, ['folder_id']),
     },
     run: async (a, ctx) => {

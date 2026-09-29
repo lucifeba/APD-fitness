@@ -10,7 +10,7 @@ import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
 import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
 
-const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1jgjreBjijah7AxHuQrSp50Vm13qTGMlA';
+const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1rJyl0Mo-vNhRDIJpnSqWxDE2doI-Zm5N';
 const ANALYSIS_DATABASE_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
 
 export interface AgentOptions {
@@ -103,8 +103,15 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
   if (skills) parts.push(`# Habilidades disponibles (usa skill_get antes de aplicarlas)\n${skills}`);
   if (less) parts.push(`# Lecciones del feedback de ${owner}\n${less}`);
   if (tasks) parts.push(`# Tareas programadas pendientes\n${tasks}`);
-  const transcriptionsFolderId = transcriptionsFolder?.value || DEFAULT_TRANSCRIPTIONS_FOLDER_ID;
-  parts.push(`# Archivo central de acompañamientos\n- Carpeta general: https://drive.google.com/drive/folders/${transcriptionsFolderId}\n- Base común: https://docs.google.com/spreadsheets/d/${ANALYSIS_DATABASE_ID}\n- Carpetas conocidas: Carlos=${'1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ'}; Patricia=${'1soODUib1sffA24LSkeH9b5KbA7_YCAdm'}; Javier=${'1GZmoT9zwHXAnxjeDNsp902kXcJOagDBE'}. Para Maitane o Jorge, busca primero su subcarpeta dentro de la carpeta general.\n- Usa la subcarpeta del delegado como fuente y destino. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cada análisis debe generar documentos, registrar todos los campos disponibles en la base común y devolver enlaces directos.`);
+  const legacyTranscriptionFolders = new Set([
+      '1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ',
+      '1jgjreBjijah7AxHuQrSp50Vm13qTGMlA',
+    ]),
+    storedTranscriptionsFolder = transcriptionsFolder?.value || '',
+    transcriptionsFolderId = storedTranscriptionsFolder && !legacyTranscriptionFolders.has(storedTranscriptionsFolder)
+      ? storedTranscriptionsFolder
+      : DEFAULT_TRANSCRIPTIONS_FOLDER_ID;
+  parts.push(`# Archivo central de acompañamientos\n- Carpeta general: https://drive.google.com/drive/folders/${transcriptionsFolderId}\n- Base común: https://docs.google.com/spreadsheets/d/${ANALYSIS_DATABASE_ID}\n- Carpetas conocidas: Carlos=${'1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ'}; Patricia=${'1soODUib1sffA24LSkeH9b5KbA7_YCAdm'}; Javier=${'1GZmoT9zwHXAnxjeDNsp902kXcJOagDBE'}. Para Maitane o Jorge, busca primero su subcarpeta dentro de la carpeta general.\n- La carpeta general es la raíz única y permanente. Busca recursivamente en todas sus subcarpetas (delegados, calls, reuniones, podcast y vídeo) según la petición; no uses como raíz los enlaces históricos anteriores.\n- Usa la subcarpeta del delegado como fuente y destino. Excluye archivos cuyo nombre contenga "Preguntas Averiguar" u "Optimización del Consejo Farmacéutico". Cada análisis debe generar documentos, registrar todos los campos disponibles en la base común y devolver enlaces directos.`);
   if (opts.summary) parts.push(`# Resumen de la conversación anterior\n${opts.summary}`);
   if (opts.depth > 0) parts.push('Eres un subagente: resuelve el objetivo con herramientas y devuelve un informe completo y factual. No pidas confirmaciones ni hables con el usuario.');
   return parts.join('\n\n');

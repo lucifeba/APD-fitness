@@ -33,6 +33,9 @@ test('a pasted Drive folder URL is processed deterministically and remembered',(
  assert.match(session,/drive-folder/);
  assert.match(session,/transcriptions_drive_folder_id/);
  assert.match(agent,/transcriptionsFolder/);
+ assert.match(tools,/foldersVisited/);
+ assert.match(tools,/parentFolderId/);
+ assert.match(tools,/application\/vnd\.google-apps\.folder/);
 });
 
 test('the full analysis can create a Google Doc and return its direct link',()=>{
@@ -48,7 +51,7 @@ test('the full analysis can create a Google Doc and return its direct link',()=>
 });
 
 test('delegate analyses create form documents and update the shared database',()=>{
- assert.match(agent,/1jgjreBjijah7AxHuQrSp50Vm13qTGMlA/);
+ assert.match(agent,/1rJyl0Mo-vNhRDIJpnSqWxDE2doI-Zm5N/);
  assert.match(agent,/1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo/);
  assert.match(agent,/analysis_archive/);
  assert.match(selection,/analysis_archive/);
