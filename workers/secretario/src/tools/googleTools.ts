@@ -7,6 +7,75 @@ import { syncOperationalData } from '../planningStore';
 import { clip, localClock, localParts, localTime, resolveDay } from '../util';
 import { confirm, params, str, num, type ToolSpec } from './types';
 
+export const PERMANENT_DRIVE_ROOT_ID = '1rJyl0Mo-vNhRDIJpnSqWxDE2doI-Zm5N';
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+function normalized(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Puntúa cuánto parece estar mencionada una carpeta en el mensaje. Los códigos
+ * cortos de negocio (Q3, Q4, BU10…) reciben prioridad aunque el nombre real
+ * incluya un año o un sufijo que el usuario no haya escrito.
+ */
+export function folderMentionScore(message: string, folderName: string, depth = 0): number {
+  const haystack = ` ${normalized(message)} `;
+  const name = normalized(folderName);
+  if (!name) return 0;
+  const words = name.split(' ').filter((word) => word.length > 1 && !['de', 'del', 'la', 'las', 'el', 'los', 'en', 'y'].includes(word));
+  const matched = words.filter((word) => haystack.includes(` ${word} `));
+  if (!matched.length) return 0;
+  const businessCode = matched.some((word) => /^(?:q[1-4]|bu\d+|20\d{2})$/.test(word));
+  const exact = haystack.includes(` ${name} `);
+  return (exact ? 120 : 0) + (businessCode ? 160 : 0) + Math.round((matched.length / Math.max(1, words.length)) * 80) + depth * 8;
+}
+
+export interface ResolvedDriveFolder {
+  id: string;
+  name: string;
+  path: string;
+  depth: number;
+  score: number;
+  url: string;
+}
+
+/** Busca recursivamente, dentro de la raíz autorizada, la subcarpeta nombrada por el usuario. */
+export async function findMentionedDriveFolder(
+  env: import('../env').Env,
+  message: string,
+  rootId = PERMANENT_DRIVE_ROOT_ID,
+  maxDepth = 6,
+): Promise<ResolvedDriveFolder | null> {
+  const queue: Array<{ id: string; path: string; depth: number }> = [{ id: rootId, path: '', depth: 0 }];
+  const seen = new Set<string>();
+  let best: ResolvedDriveFolder | null = null;
+  while (queue.length && seen.size < 120) {
+    const current = queue.shift()!;
+    if (seen.has(current.id) || current.depth >= maxDepth) continue;
+    seen.add(current.id);
+    const children = await g.driveSearch(env, '', 100, current.id);
+    for (const child of children) {
+      if (child.mimeType !== FOLDER_MIME) continue;
+      const depth = current.depth + 1;
+      const path = current.path ? `${current.path} / ${child.name}` : child.name;
+      const score = folderMentionScore(message, child.name, depth);
+      const candidate: ResolvedDriveFolder = {
+        id: child.id,
+        name: child.name,
+        path,
+        depth,
+        score,
+        url: child.link || `https://drive.google.com/drive/folders/${child.id}`,
+      };
+      if (score > 0 && (!best || score > best.score || (score === best.score && depth > best.depth))) best = candidate;
+      queue.push({ id: child.id, path, depth });
+    }
+  }
+  return best;
+}
+
 export function driveFolderId(value: string): string {
   const input = value.trim();
   return input.match(/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/([\w-]+)/i)?.[1]
@@ -30,7 +99,7 @@ export async function importDriveFolderKnowledge(
     seen.add(currentFolderId);
     const children = await g.driveSearch(env, '', 100, currentFolderId);
     for (const child of children) {
-      if (child.mimeType === 'application/vnd.google-apps.folder') {
+      if (child.mimeType === FOLDER_MIME) {
         if (!seen.has(child.id)) queue.push(child.id);
       }
     }
@@ -38,7 +107,7 @@ export async function importDriveFolderKnowledge(
       ? await g.driveSearch(env, query, Math.min(100, max - files.length), currentFolderId)
       : children;
     for (const child of candidates) {
-      if (child.mimeType === 'application/vnd.google-apps.folder') continue;
+      if (child.mimeType === FOLDER_MIME) continue;
       files.push({ ...child, parentFolderId: currentFolderId });
       if (files.length >= max) break;
     }
@@ -295,6 +364,18 @@ export const googleTools: ToolSpec[] = [
       await g.calendarDelete(ctx.env, String(a.id), a.calendar_id ? String(a.calendar_id) : undefined);
       await audit(ctx.env, ctx.chatId, 'calendar_delete', a, true);
       return { deleted: true };
+    },
+  },
+  {
+    def: {
+      name: 'drive_resolve_folder',
+      description: 'Localiza automáticamente una carpeta o subcarpeta nombrada por el usuario dentro del archivo central permanente de Drive. Admite nombres aproximados como Q3 para una carpeta llamada Q3 27. Nunca pidas al usuario el enlace antes de usarla.',
+      parameters: params({ description: str('Mensaje del usuario o nombres de carpeta/subcarpeta que hay que localizar.'), root_folder_id: str('Opcional. Por defecto usa la raíz permanente configurada.') }, ['description']),
+    },
+    run: async (a, ctx) => {
+      const result = await findMentionedDriveFolder(ctx.env, String(a.description), a.root_folder_id ? driveFolderId(String(a.root_folder_id)) : PERMANENT_DRIVE_ROOT_ID);
+      await audit(ctx.env, ctx.chatId, 'drive_resolve_folder', { description: a.description, root: a.root_folder_id || PERMANENT_DRIVE_ROOT_ID, result });
+      return result ?? { found: false, message: 'No se encontró una coincidencia suficiente dentro de la raíz permanente.' };
     },
   },
   {
