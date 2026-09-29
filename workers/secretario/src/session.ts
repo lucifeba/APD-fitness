@@ -9,7 +9,7 @@ import { analyzeImage, isImageAttachment, transcribe } from './media';
 import { countMemories, listMemories, remember } from './memory';
 import { countDocuments, extractText, ingestDocument, listDocuments } from './knowledge';
 import { ALL_TOOLS, resolveTool } from './tools';
-import { driveFolderId, importDriveFolderKnowledge } from './tools/googleTools';
+import { driveFolderId, findMentionedDriveFolder, importDriveFolderKnowledge, PERMANENT_DRIVE_ROOT_ID } from './tools/googleTools';
 import { normalizeSecretName, vaultList, vaultSet } from './tools/autonomyTools';
 import type { ToolCtx } from './tools/types';
 import { answerCallback, clearKeyboard, downloadFile, send, sendDocument, tg, typing } from './telegram';
@@ -123,7 +123,37 @@ export class SecretarioSession implements DurableObject {
     if (msg.text) parts.push(msg.text);
     if (msg.caption) parts.push(msg.caption);
     const rawText = [msg.text, msg.caption].filter(Boolean).join('\n');
-    for (const folderUrl of driveFolderUrls(rawText).slice(0, 2)) {
+    const pastedFolderUrls = driveFolderUrls(rawText);
+    // Los nombres de carpeta son suficientes: Aravitas resuelve la ruta desde la
+    // raíz permanente y prepara los documentos antes de invocar al modelo.
+    if (!pastedFolderUrls.length && /\b(carpeta|subcarpeta|drive|transcripci[oó]n|reuni[oó]n(?:es)?\s+de\s+ciclo)\b/i.test(rawText)) {
+      const storedRoot = await getSetting(this.env, 'transcriptions_drive_folder_id');
+      const rootId = storedRoot && !['1kzhQtUfpldiBo9hLGUFClVfj7JTRu8sQ', '1jgjreBjijah7AxHuQrSp50Vm13qTGMlA'].includes(storedRoot)
+        ? storedRoot
+        : PERMANENT_DRIVE_ROOT_ID;
+      try {
+        const resolved = await findMentionedDriveFolder(this.env, rawText, rootId);
+        if (resolved) {
+          const shouldImport = /\b(analiz|lee|leer|revis|prepar|crea|genera|informe|documento|resum|extrae)\w*/i.test(rawText);
+          let importContext = '';
+          if (shouldImport) {
+            const imported = await importDriveFolderKnowledge(this.env, chatId, resolved.id, {
+              max: 20,
+              exclude: ['Preguntas Averiguar', 'Optimización del Consejo Farmacéutico'],
+            });
+            const usable = imported.documents.filter((d) => d.ok && d.doc_id);
+            importContext = ` Se han preparado ${imported.successful} documentos (${imported.failed} fallos). doc_id: ${usable.map((d) => `${d.doc_id} (${d.file})`).join('; ') || 'ninguno'}.`;
+          }
+          parts.push(`[CONTEXTO INTERNO: carpeta resuelta automáticamente desde la raíz permanente: ${resolved.path}; drive_folder_id=${resolved.id}; URL=${resolved.url}.${importContext} Ejecuta ahora la petición original y guarda el resultado en esta carpeta cuando corresponda. Está prohibido pedir un enlace o limitarse a confirmar la localización.]`);
+          console.log('drive folder auto-resolution', { chatId, rootId, resolved: resolved.path, folderId: resolved.id, imported: shouldImport });
+          await audit(this.env, chatId, 'drive_folder_auto_resolve', { rootId, message: clip(rawText, 500), resolved, imported: shouldImport });
+        }
+      } catch (error) {
+        console.warn('drive folder auto-resolution failed', error instanceof Error ? error.message : String(error));
+        parts.push(`[CONTEXTO INTERNO: la resolución automática de carpeta falló: ${error instanceof Error ? error.message : String(error)}. Intenta drive_resolve_folder o drive_search dentro de la raíz permanente antes de preguntar al usuario.]`);
+      }
+    }
+    for (const folderUrl of pastedFolderUrls.slice(0, 2)) {
       const folderId = driveFolderId(folderUrl);
       const storedFolder = await getSetting(this.env, 'transcriptions_drive_folder_id');
       const recentContext = `${rawText}\n${this.state.history.slice(-4).map((m) => m.content).join('\n')}`;
