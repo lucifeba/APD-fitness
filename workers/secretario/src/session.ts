@@ -17,6 +17,7 @@ import { buildAgenda, renderAgenda } from './agenda';
 import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
 import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
 import { importPlanningSource, syncOperationalData, telegramPlanningSummary } from './planningStore';
+import { isConfigurationInstruction, saveConfigurationInstruction } from './configKnowledge';
 import {
   isLongTelegramUpdate,
   TELEGRAM_JOB_LEASE_MS,
@@ -375,6 +376,9 @@ export class SecretarioSession implements DurableObject {
       if (age >= 0 && age < 24 * 60 * 60 * 1000) userText = `[Contexto de la última imagen, ${state.lastImage.title}: ${clip(state.lastImage.analysis, 9000)}]\n${userText}`;
     }
     if (incoming.replyTo) userText = `[Respondiendo a ${incoming.replyTo.fromBot ? 'tu mensaje' : 'un mensaje'}: "${incoming.replyTo.text}"]\n${userText}`;
+    if (source === 'telegram' && isConfigurationInstruction(incoming.text)) {
+      await saveConfigurationInstruction(this.env, incoming.text);
+    }
     state.history.push({ role: 'user', content: userText });
     await this.env.DB.prepare('INSERT INTO conversation_messages(chat_id,role,source,content) VALUES(?,?,?,?)').bind(chatId, 'user', source, userText).run();
     state.lastActivity = now();
@@ -507,7 +511,7 @@ export class SecretarioSession implements DurableObject {
             `Puedo: buscar en internet, leer y redactar correos, gestionar agenda y Drive, programar recordatorios y tareas, recordar lo que me cuentas y aprender procedimientos.\n` +
             `Nunca envío, modifico ni borro nada sin que lo confirmes con un botón.\n\n` +
             `Mándame cualquier archivo (PDF, Word, Excel, imágenes, texto...) o enlace y lo guardo en mi base de conocimiento para usarlo después.\n\n` +
-            `Comandos:\n/agenda [hoy|mañana|semana|lunes|12/09] · eventos de todos tus calendarios y tareas\n/sincronizar · actualizar Calendarios, panel y CRM XLSX\n/docs · documentos que conozco\n/herramientas · herramientas que he creado y credenciales guardadas\n/secreto NOMBRE valor · guardar una credencial cifrada para APIs\n/instrucciones · reglas que me he dado a mí mismo\n/estado · uso de hoy y salud\n/memoria [búsqueda] · qué recuerdo\n/aprende <texto> · guardar un hecho\n/olvida <id> · archivar un recuerdo (con confirmación)\n/skills · habilidades aprendidas\n/tareas · programadas\n/feedback <texto> · corrígeme o refuérzame\n/modo silencio|normal · avisos proactivos\n/nuevo · empezar conversación limpia\n/google · conectar Gmail, Calendar y Drive`,
+            `Comandos:\n/agenda [hoy|mañana|semana|lunes|12/09] · eventos de todos tus calendarios y tareas\n/sincronizar · actualizar Calendarios, panel y CRM XLSX\n/docs · documentos que conozco\n/herramientas · herramientas que he creado y credenciales guardadas\n/secreto NOMBRE valor · guardar una credencial cifrada para APIs\n/instrucciones · reglas que me he dado a mí mismo\n/estado · uso de hoy y salud\n/memoria [búsqueda] · qué recuerdo\n/aprende <texto> · guardar un hecho\n/configura <texto> · guardar una regla permanente del agente\n/olvida <id> · archivar un recuerdo (con confirmación)\n/skills · habilidades aprendidas\n/tareas · programadas\n/feedback <texto> · corrígeme o refuérzame\n/modo silencio|normal · avisos proactivos\n/nuevo · empezar conversación limpia\n/google · conectar Gmail, Calendar y Drive`,
         );
         return true;
       case '/sincronizar': {
@@ -538,6 +542,16 @@ export class SecretarioSession implements DurableObject {
         if (!arg) return void (await reply('Dime qué guardar: /aprende <texto>')), true;
         const id = await remember(this.env, arg, 'fact', 'command', 4);
         await reply(id ? `Guardado (${id}).` : 'Eso ya lo sabía.');
+        return true;
+      }
+      case '/configura': {
+        if (!arg) return void (await reply('Dime la regla permanente: /configura <texto>')), true;
+        const result = await saveConfigurationInstruction(this.env, arg);
+        if (result.reason === 'sensitive') {
+          await reply('No guardaré credenciales dentro del conocimiento. Usa /secreto NOMBRE valor para almacenarlas cifradas.');
+        } else {
+          await reply(result.saved ? 'Configuración guardada y activa para las próximas conversaciones.' : 'Esa configuración ya estaba guardada.');
+        }
         return true;
       }
       case '/olvida': {

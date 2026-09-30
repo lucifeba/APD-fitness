@@ -9,6 +9,7 @@ import { skillIndex } from './tools/skillTools';
 import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
 import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
+import { configurationKnowledge } from './configKnowledge';
 
 const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1rJyl0Mo-vNhRDIJpnSqWxDE2doI-Zm5N';
 const ANALYSIS_DATABASE_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
@@ -47,7 +48,7 @@ async function pendingTasks(env: Env, chatId: string): Promise<string> {
 }
 
 export async function systemPrompt(env: Env, opts: { chatId: string; tz: string; query: string; summary: string; depth: number }): Promise<string> {
-  const [mems, skills, less, tasks, googleOk, profile, nMem, knowledge, selfRules, nDocs, transcriptionsFolder] = await Promise.all([
+  const [mems, skills, less, tasks, googleOk, profile, nMem, knowledge, selfRules, nDocs, transcriptionsFolder, configuredRules] = await Promise.all([
     recall(env, opts.query, 8),
     skillIndex(env),
     lessons(env),
@@ -59,6 +60,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
     selfPrompt(env),
     countDocuments(env),
     env.DB.prepare("SELECT value FROM settings WHERE key='transcriptions_drive_folder_id'").first<{ value: string }>(),
+    configurationKnowledge(env),
   ]);
   const name = env.BOT_NAME || 'Secretario';
   const owner = env.OWNER_NAME || 'Pablo';
@@ -97,6 +99,8 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
     googleOk ? `Google está conectado (Gmail, Calendar, Drive, Tasks de ${env.OWNER_EMAIL}).` : 'Google NO está conectado: pídele a Pablo que use /google si necesitas correo, agenda o Drive.',
   ];
   if (selfRules) parts.push(`# Instrucciones que te has dado a ti mismo (self_instruct)\n${selfRules}`);
+  if (configuredRules.length)
+    parts.push(`# Configuración permanente recibida por Telegram (obligatoria)\n${configuredRules.map((rule) => `- ${rule.text}`).join('\n')}`);
   if (profile?.value) parts.push(`# Perfil de ${owner}\n${profile.value}`);
   if (mems.length) parts.push(`# Recuerdos relevantes (de ${nMem} en memoria)\n${mems.map((m) => `- [${m.kind} ${m.id}] ${m.content}`).join('\n')}`);
   if (knowledge.length)

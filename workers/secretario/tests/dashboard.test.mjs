@@ -80,7 +80,11 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(script.includes('Nº de clientes de más de 200 €'));
  assert.ok(script.includes('VRN plataforma'));
  assert.ok(script.includes('VRN push'));
- assert.ok(script.includes('Descargar imagen del gráfico'));
+ assert.ok(script.includes('Descargar gráfico en JPG'));
+ assert.ok(script.includes('Descargar tabla JPG'));
+ assert.ok(script.includes("'image/jpeg',0.94"));
+ assert.ok(script.includes('installJpgTableExports'));
+ assert.ok(!script.includes('↓ PNG'));
  assert.ok(script.includes('% SOW'));
  assert.ok(script.includes('% agudo'));
  assert.ok(script.includes('Dto medio'));
