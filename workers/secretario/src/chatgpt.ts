@@ -2,7 +2,7 @@ import { getSetting, setSetting } from './db';
 import type { ChatMessage, ChatResult, Env, ToolCall, ToolDef } from './env';
 import { compactMessages } from './chatMessages';
 import { vaultDelete, vaultGet, vaultSet } from './tools/autonomyTools';
-import { uid } from './util';
+import { fetchWithTimeout, uid } from './util';
 
 /**
  * "Entrar con ChatGPT": el mismo flujo de código de dispositivo que usa Codex CLI (y OpenClaw).
@@ -271,7 +271,9 @@ export async function callChatGPT(env: Env, model: string, messages: ChatMessage
   if (cookies) headers.cookie = cookies;
   // chatgpt.com bloquea las IPs de salida de Cloudflare Workers: si hay relé configurado, pasamos por él.
   const target = (env.CHATGPT_RELAY_URL || '').trim() || `${BACKEND}/responses`;
-  const r = await fetch(target, { method: 'POST', headers, body: JSON.stringify(body) });
+  // El relay de Vercel tiene un límite de 60 s. Cortamos antes para que el router
+  // pueda pasar a Gemini/Workers AI en vez de dejar Telegram sin respuesta.
+  const r = await fetchWithTimeout(target, { method: 'POST', headers, body: JSON.stringify(body) }, 30_000);
   const upstreamCookies = r.headers.get('x-upstream-set-cookie');
   if (upstreamCookies) {
     try {
