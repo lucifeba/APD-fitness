@@ -1,12 +1,12 @@
 import { getSetting, setSetting } from './db';
 import type { Env } from './env';
-import { oauthExchange, gmailDraft } from './google';
+import { googleConfigured, oauthExchange, gmailDraft } from './google';
 import { buildAgenda, renderAgenda } from './agenda';
 import { runAgent } from './agent';
 import { extractText, forgetDocument, ingestDocument, ingestUrl, listDocuments, searchKnowledge } from './knowledge';
 import { reindexMemories } from './memory';
 import { ask, chat, forgetChatGPTCache, listModels, probeProviders } from './router';
-import { chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
+import { chatgptConnected, chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
 import { audit } from './db';
 import { clip, resolveDay, safeJson, uid } from './util';
 import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
@@ -89,12 +89,15 @@ async function handleTelegram(req: Request, env: Env, ctx: ExecutionContext): Pr
     console.log(`mensaje ignorado de chat ${chatId}`);
     return json({ ok: true, ignored: true });
   }
-  ctx.waitUntil(
-    sessionFor(env, owner)
-      .fetch('https://session/update', { method: 'POST', body: JSON.stringify(update), headers: { 'content-type': 'application/json' } })
-      .catch((e) => console.error('session fetch', e)),
-  );
-  return json({ ok: true });
+  // No confirmamos a Telegram hasta que el Durable Object haya persistido el trabajo.
+  // Si falla el encolado devolvemos 5xx y Telegram reintentará el mismo update_id.
+  const queued = await sessionFor(env, owner).fetch('https://session/update', {
+    method: 'POST',
+    body: JSON.stringify(update),
+    headers: { 'content-type': 'application/json' },
+  });
+  if (!queued.ok) throw new Error(`No se pudo persistir el mensaje de Telegram (${queued.status}): ${clip(await queued.text(), 300)}`);
+  return json({ ok: true, queued: true });
 }
 
 async function setupWebhook(env: Env): Promise<unknown> {
@@ -332,7 +335,35 @@ o, si de verdad necesitas aclaraciones:
       }
       if (url.pathname === '/health') {
         const owner = await ownerChatId(env);
-        return json({ ok: true, service: env.BOT_NAME || 'Secretario', paired: Boolean(owner), time: new Date().toISOString() });
+        const [database, session, webhook, google, chatgpt] = await Promise.allSettled([
+          env.DB.prepare('SELECT 1 AS ok').first<{ ok: number }>(),
+          owner ? sessionFor(env, owner).fetch('https://session/health') : Promise.resolve(null),
+          env.TELEGRAM_BOT_TOKEN ? tg<any>(env, 'getWebhookInfo') : Promise.resolve(null),
+          googleConfigured(env),
+          chatgptConnected(env, true),
+        ]);
+        const webhookInfo = webhook.status === 'fulfilled' ? webhook.value : null;
+        const expectedWebhook = `${env.PUBLIC_URL}/telegram/webhook`;
+        const webhookOk = Boolean(webhookInfo?.url && webhookInfo.url === expectedWebhook);
+        const sessionInfo: any = session.status === 'fulfilled' && session.value ? await session.value.json().catch(() => null) : null;
+        const result = {
+          ok: Boolean(owner) && database.status === 'fulfilled' && Boolean(sessionInfo?.ok) && webhookOk,
+          service: env.BOT_NAME || 'Secretario',
+          time: new Date().toISOString(),
+          checks: {
+            paired: Boolean(owner),
+            database: database.status === 'fulfilled',
+            durableObject: Boolean(sessionInfo?.ok),
+            telegramWebhook: webhookOk,
+            telegramPending: Number(webhookInfo?.pending_update_count || 0),
+            googleOAuth: google.status === 'fulfilled' && google.value,
+            chatgptOAuth: chatgpt.status === 'fulfilled' && Boolean(chatgpt.value),
+            workersAI: Boolean(env.AI),
+            gemini: Boolean(env.GEMINI_API_KEY),
+          },
+          queue: sessionInfo ? { pending: sessionInfo.pending, running: sessionInfo.running, failed: sessionInfo.failed } : null,
+        };
+        return json(result, result.ok ? 200 : 503);
       }
       if (req.method === 'POST' && url.pathname === '/admin/setup-webhook') {
         if (!adminOk(req, env)) return json({ ok: false, error: 'unauthorized' }, 401);

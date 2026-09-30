@@ -1,13 +1,14 @@
 import type { Env } from './env';
+import { fetchWithTimeout } from './util';
 
 type Json = Record<string, unknown>;
 
 export async function tg<T = any>(env: Env, method: string, body?: Json): Promise<T> {
-  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+  const r = await fetchWithTimeout(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body ?? {}),
-  });
+  }, 20_000);
   const j = await r.json<any>();
   if (!j.ok) throw new Error(`Telegram ${method}: ${j.description ?? r.status}`);
   return j.result as T;
@@ -157,7 +158,7 @@ export async function answerCallback(env: Env, id: string, text?: string): Promi
 
 export async function downloadFile(env: Env, fileId: string): Promise<{ bytes: ArrayBuffer; path: string }> {
   const f = await tg<{ file_path: string }>(env, 'getFile', { file_id: fileId });
-  const r = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${f.file_path}`);
+  const r = await fetchWithTimeout(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${f.file_path}`, {}, 45_000);
   if (!r.ok) throw new Error(`Telegram descarga ${r.status}`);
   return { bytes: await r.arrayBuffer(), path: f.file_path };
 }
@@ -167,6 +168,6 @@ export async function sendDocument(env: Env, chatId: string, name: string, conte
   form.set('chat_id', chatId);
   if (caption) form.set('caption', caption.slice(0, 1000));
   form.set('document', new Blob([content], { type: 'text/plain' }), name);
-  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, { method: 'POST', body: form });
+  const r = await fetchWithTimeout(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, { method: 'POST', body: form }, 45_000);
   if (!r.ok) throw new Error(`Telegram sendDocument ${r.status}`);
 }

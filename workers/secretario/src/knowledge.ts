@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { remember } from './memory';
 import { ask, embed } from './router';
-import { clip, htmlToText, now, safeJson, uid } from './util';
+import { clip, fetchWithTimeout, htmlToText, now, safeJson, uid } from './util';
 
 /** Formatos que el conversor de Workers AI entiende. Imágenes aparte (usan modelos de visión). */
 const CONVERTIBLE = /pdf|msword|wordprocessingml|spreadsheetml|ms-excel|opendocument|apple\.|vnd\.apple|text\/html|xml|csv/i;
@@ -153,7 +153,7 @@ export async function ingestDriveDocument(env: Env, file: { id: string; modified
 
 /** Descarga una URL y la indexa (HTML, PDF, etc. vía el conversor). */
 export async function ingestUrl(env: Env, url: string, title?: string): Promise<DocRow & { facts: number }> {
-  const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 Secretario/1.0', accept: 'text/html,application/pdf,application/json,text/plain,*/*' }, redirect: 'follow' });
+  const r = await fetchWithTimeout(url, { headers: { 'user-agent': 'Mozilla/5.0 Secretario/1.0', accept: 'text/html,application/pdf,application/json,text/plain,*/*' }, redirect: 'follow' }, 45_000);
   if (!r.ok) throw new Error(`HTTP ${r.status} al descargar ${url}`);
   const mime = (r.headers.get('content-type') || '').split(';')[0].trim();
   const bytes = await r.arrayBuffer();

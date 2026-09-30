@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { getSetting, setSetting } from './db';
 import { extractText } from './knowledge';
-import { base64UrlDecode, base64UrlEncode, htmlToText } from './util';
+import { base64UrlDecode, base64UrlEncode, fetchWithTimeout, htmlToText } from './util';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
@@ -26,11 +26,11 @@ export async function accessToken(env: Env): Promise<string> {
   const rt = await refreshToken(env);
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !rt)
     throw new Error('Google no está conectado. Usa /google para autorizar la cuenta.');
-  const r = await fetch('https://oauth2.googleapis.com/token', {
+  const r = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: rt, grant_type: 'refresh_token' }),
-  });
+  }, 20_000);
   if (!r.ok) throw new Error(`Google OAuth ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json<any>();
   cached = { token: String(j.access_token), exp: Date.now() + Number(j.expires_in ?? 3600) * 1000 };
@@ -52,7 +52,7 @@ export function oauthStartUrl(env: Env, state: string): string {
 }
 
 export async function oauthExchange(env: Env, code: string): Promise<void> {
-  const r = await fetch('https://oauth2.googleapis.com/token', {
+  const r = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -62,7 +62,7 @@ export async function oauthExchange(env: Env, code: string): Promise<void> {
       redirect_uri: `${env.PUBLIC_URL}/oauth/callback`,
       grant_type: 'authorization_code',
     }),
-  });
+  }, 20_000);
   const j = await r.json<any>();
   if (!r.ok || !j.refresh_token) throw new Error(`Google no devolvió refresh_token: ${JSON.stringify(j).slice(0, 300)}`);
   await setSetting(env, 'google_refresh_token', String(j.refresh_token));
@@ -71,7 +71,7 @@ export async function oauthExchange(env: Env, code: string): Promise<void> {
 
 export async function gapi<T = any>(env: Env, url: string, init: RequestInit = {}): Promise<T> {
   const t = await accessToken(env);
-  const r = await fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), authorization: `Bearer ${t}` } });
+  const r = await fetchWithTimeout(url, { ...init, headers: { ...(init.headers as Record<string, string>), authorization: `Bearer ${t}` } }, 30_000);
   if (!r.ok) throw new Error(`Google ${r.status} ${url.split('?')[0].replace('https://', '')}: ${(await r.text()).slice(0, 300)}`);
   if (r.status === 204) return {} as T;
   const ct = r.headers.get('content-type') || '';
@@ -503,16 +503,16 @@ export async function driveBinaryMetadata(env: Env, fileId: string): Promise<{na
 
 export async function driveDownloadBytes(env: Env, fileId: string): Promise<Uint8Array> {
   const token = await accessToken(env);
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { authorization: `Bearer ${token}` } });
+  const r = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { authorization: `Bearer ${token}` } }, 45_000);
   if (!r.ok) throw new Error(`Google Drive ${r.status}: ${(await r.text()).slice(0,200)}`);
   return new Uint8Array(await r.arrayBuffer());
 }
 
 export async function driveUpdateBytes(env: Env, fileId: string, bytes: Uint8Array, mimeType: string): Promise<{modifiedTime:string;size:string}> {
   const token = await accessToken(env);
-  const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media&fields=modifiedTime,size`, {
+  const r = await fetchWithTimeout(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media&fields=modifiedTime,size`, {
     method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': mimeType }, body: bytes,
-  });
+  }, 45_000);
   if (!r.ok) throw new Error(`Google Drive ${r.status}: ${(await r.text()).slice(0,200)}`);
   return r.json();
 }

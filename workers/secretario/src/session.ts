@@ -17,6 +17,17 @@ import { buildAgenda, renderAgenda } from './agenda';
 import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron, now, resolveDay, uid } from './util';
 import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
 import { importPlanningSource, syncOperationalData, telegramPlanningSummary } from './planningStore';
+import {
+  isLongTelegramUpdate,
+  TELEGRAM_JOB_LEASE_MS,
+  TELEGRAM_JOB_MAX_ATTEMPTS,
+  TELEGRAM_JOB_PREFIX,
+  TELEGRAM_JOB_RETENTION_MS,
+  telegramJobDue,
+  telegramJobId,
+  telegramRetryDelayMs,
+  type TelegramJob,
+} from './telegramQueue';
 
 interface State {
   history: ChatMessage[];
@@ -37,7 +48,7 @@ export function driveFolderUrls(text: string): string[] {
 export class SecretarioSession implements DurableObject {
   private state!: State;
   private loaded = false;
-  /** Cola para procesar los mensajes de uno en uno y no mezclar respuestas. */
+  /** La web espera respuesta síncrona. Telegram usa la bandeja persistente del Durable Object. */
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private ctx: DurableObjectState, private env: Env) {}
@@ -73,10 +84,11 @@ export class SecretarioSession implements DurableObject {
         await task;
         return Response.json({ ok: true });
       } else if (url.pathname === '/update') {
-        // Respondemos enseguida a Telegram y procesamos en segundo plano dentro del objeto.
         const update = await request.json<any>();
-        this.queue = this.queue.then(() => this.handleUpdate(update)).catch((e) => console.error('update', e));
-        this.ctx.waitUntil(this.queue);
+        const queued = await this.enqueueTelegram(update);
+        return Response.json({ ok: true, queued: true, duplicate: !queued.created, job: queued.id });
+      } else if (url.pathname === '/health') {
+        return Response.json(await this.queueHealth());
       } else if (url.pathname === '/heartbeat') {
         await this.runHeartbeat();
       } else if (url.pathname === '/reminders') {
@@ -98,6 +110,104 @@ export class SecretarioSession implements DurableObject {
   }
 
   // ---------- Telegram ----------
+
+  private async telegramJobs(): Promise<Array<{ key: string; job: TelegramJob }>> {
+    const rows = await this.ctx.storage.list<TelegramJob>({ prefix: TELEGRAM_JOB_PREFIX });
+    return [...rows.entries()].map(([key, job]) => ({ key, job })).sort((a, b) => a.job.createdAt - b.job.createdAt);
+  }
+
+  private async queueHealth(): Promise<Record<string, unknown>> {
+    const jobs = await this.telegramJobs();
+    const counts = { pending: 0, running: 0, failed: 0 };
+    for (const { job } of jobs) if (job.status in counts) counts[job.status as keyof typeof counts]++;
+    return { ok: true, ...counts, lastActivity: this.state.lastActivity };
+  }
+
+  private async enqueueTelegram(update: any): Promise<{ id: string; created: boolean }> {
+    const id = telegramJobId(update);
+    const key = `${TELEGRAM_JOB_PREFIX}${id}`;
+    const existing = await this.ctx.storage.get<TelegramJob>(key);
+    if (existing) {
+      await this.rescheduleAlarm();
+      return { id, created: false };
+    }
+    const at = Date.now();
+    const job: TelegramJob = { id, update, status: 'pending', attempts: 0, createdAt: at, updatedAt: at, nextAttemptAt: at };
+    await this.ctx.storage.put(key, job);
+    await this.rescheduleAlarm();
+    if (isLongTelegramUpdate(update)) {
+      const message = update.message;
+      const chatId = String(message?.chat?.id ?? '');
+      if (chatId) {
+        job.acknowledged = true;
+        job.updatedAt = Date.now();
+        await this.ctx.storage.put(key, job);
+        this.ctx.waitUntil(
+          send(this.env, chatId, 'Lo tengo. Estoy localizando y analizando el material; te responderé aquí sin que tengas que repetir nada.', {
+            plain: true,
+            replyTo: message?.message_id,
+            skipHistory: true,
+          }).catch((error) => console.warn('telegram acknowledgement', error instanceof Error ? error.message : String(error))),
+        );
+      }
+    }
+    return { id, created: true };
+  }
+
+  private async nextTelegramJob(at = Date.now()): Promise<{ key: string; job: TelegramJob } | null> {
+    const jobs = await this.telegramJobs();
+    return jobs.find(({ job }) => telegramJobDue(job, at)) ?? null;
+  }
+
+  private async processTelegramJob(): Promise<boolean> {
+    const selected = await this.nextTelegramJob();
+    if (!selected) return false;
+    const { key } = selected;
+    const leaseUntil = Date.now() + TELEGRAM_JOB_LEASE_MS;
+    const job: TelegramJob = {
+      ...selected.job,
+      status: 'running',
+      attempts: selected.job.attempts + 1,
+      updatedAt: Date.now(),
+      leaseUntil,
+    };
+    await this.ctx.storage.put(key, job);
+    // Si la ejecución es interrumpida, esta alarma recuperará el trabajo al vencer el lease.
+    await this.ctx.storage.setAlarm(leaseUntil);
+    try {
+      await this.handleUpdate(job.update);
+      job.status = 'done';
+      job.completedAt = Date.now();
+      job.updatedAt = job.completedAt;
+      job.lastError = undefined;
+      job.leaseUntil = undefined;
+      await this.ctx.storage.put(key, job);
+      await audit(this.env, null, 'telegram_job_done', { id: job.id, attempts: job.attempts }).catch(() => undefined);
+    } catch (error) {
+      const detail = clip(error instanceof Error ? error.message : String(error), 2000);
+      job.updatedAt = Date.now();
+      job.lastError = detail;
+      job.leaseUntil = undefined;
+      const message = job.update?.message ?? job.update?.callback_query?.message;
+      const chatId = String(message?.chat?.id ?? '');
+      if (job.attempts >= TELEGRAM_JOB_MAX_ATTEMPTS) {
+        job.status = 'failed';
+        await this.ctx.storage.put(key, job);
+        const incident = uid('inc_');
+        await audit(this.env, chatId || null, 'telegram_job_failed', { incident, id: job.id, attempts: job.attempts, detail }, false).catch(() => undefined);
+        if (chatId)
+          await send(this.env, chatId, `No he podido completar esta acción tras ${job.attempts} intentos automáticos. La incidencia ${incident} ha quedado registrada; el mensaje y el material siguen conservados.`, { plain: true, replyTo: message?.message_id, skipHistory: true }).catch(() => undefined);
+      } else {
+        job.status = 'pending';
+        job.nextAttemptAt = Date.now() + telegramRetryDelayMs(job.attempts);
+        await this.ctx.storage.put(key, job);
+        await audit(this.env, chatId || null, 'telegram_job_retry', { id: job.id, attempt: job.attempts, nextAttemptAt: job.nextAttemptAt, detail }, false).catch(() => undefined);
+        if (chatId && job.attempts === 1)
+          await send(this.env, chatId, 'He encontrado una incidencia temporal durante el proceso. La estoy reintentando automáticamente; no vuelvas a enviar el mensaje.', { plain: true, replyTo: message?.message_id, skipHistory: true }).catch(() => undefined);
+      }
+    }
+    return true;
+  }
 
   private async handleUpdate(update: any): Promise<void> {
     if (update.callback_query) return this.handleCallback(update.callback_query);
@@ -314,8 +424,7 @@ export class SecretarioSession implements DurableObject {
       const detail = clip(String(e?.message ?? e), 3000);
       console.error('converse failed', incident, detail);
       await audit(this.env, chatId, 'agent_error', { incident, detail }, false).catch(() => undefined);
-      await send(this.env, chatId, `No he podido completar esta acción tras activar los sistemas de respaldo. La incidencia ${incident} ha quedado registrada para diagnóstico; no necesitas copiar errores técnicos ni reformular el mensaje.`, { plain: true });
-      if (source === 'web') throw e;
+      throw e;
     }
   }
 
@@ -552,12 +661,22 @@ export class SecretarioSession implements DurableObject {
 
   async rescheduleAlarm(): Promise<void> {
     const next = await this.env.DB.prepare("SELECT MIN(due_at) AS d FROM tasks WHERE status='pending'").first<{ d: string | null }>();
-    if (next?.d) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, new Date(next.d).getTime()));
+    const jobs = await this.telegramJobs();
+    const inboxTimes = jobs.flatMap(({ job }) => {
+      if (job.status === 'pending') return [job.nextAttemptAt];
+      if (job.status === 'running') return [Number(job.leaseUntil || Date.now())];
+      return [];
+    });
+    const taskTime = next?.d ? new Date(next.d).getTime() : Number.POSITIVE_INFINITY;
+    const inboxTime = inboxTimes.length ? Math.min(...inboxTimes) : Number.POSITIVE_INFINITY;
+    const alarmAt = Math.min(taskTime, inboxTime);
+    if (Number.isFinite(alarmAt)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, alarmAt));
     else await this.ctx.storage.deleteAlarm();
   }
 
   async alarm(): Promise<void> {
     await this.load();
+    await this.processTelegramJob();
     const due = (
       await this.env.DB.prepare("SELECT * FROM tasks WHERE status='pending' AND due_at<=? ORDER BY due_at LIMIT 5").bind(new Date(Date.now() + 30_000).toISOString()).all<any>()
     ).results;
@@ -592,6 +711,8 @@ export class SecretarioSession implements DurableObject {
       if (nextDue) await this.env.DB.prepare("UPDATE tasks SET due_at=?, last_run_at=?, last_result=?, status='pending' WHERE id=?").bind(nextDue, now(), clip(result, 2000), t.id).run();
       else await this.env.DB.prepare('UPDATE tasks SET status=?, last_run_at=?, last_result=? WHERE id=?').bind(status, now(), clip(result, 2000), t.id).run();
     }
+    const oldJobs = (await this.telegramJobs()).filter(({ job }) => job.status === 'done' && Number(job.completedAt || job.updatedAt) < Date.now() - TELEGRAM_JOB_RETENTION_MS);
+    if (oldJobs.length) await this.ctx.storage.delete(oldJobs.map(({ key }) => key));
     await this.save();
     await this.rescheduleAlarm();
   }
