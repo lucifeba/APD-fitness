@@ -14,6 +14,7 @@ test('detecta instrucciones permanentes sin capturar peticiones operativas', () 
   assert.equal(api.isConfigurationInstruction('A partir de ahora guarda siempre las configuraciones que te indique por Telegram.'), true);
   assert.equal(api.isConfigurationInstruction('Quiero que cuando te pida algo de configuración vía Telegram, lo metas en tu conocimiento.'), true);
   assert.equal(api.isConfigurationInstruction('Configura el cuadro de mando para mostrar siempre los importes netos.'), true);
+  assert.equal(api.isConfigurationInstruction('Configura el color del dashboard en azul.'), true);
   assert.equal(api.isConfigurationInstruction('Crea una visita mañana a las 10.'), false);
   assert.equal(api.isConfigurationInstruction('Redacta un correo a Marta.'), false);
 });

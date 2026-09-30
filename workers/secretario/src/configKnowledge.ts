@@ -12,6 +12,7 @@ export interface ConfigurationInstruction {
 }
 
 const CONFIGURATION_PATTERNS = [
+  /^\s*(?:por favor\s+)?(?:configura|ajusta|establece)\b/i,
   /\b(?:configura|ajusta|establece|aplica)\b.{0,120}\b(?:siempre|regla|configuraci[oó]n|instrucci[oó]n|preferencia)\b/i,
   /\b(?:a partir de ahora|de ahora en adelante|en adelante|siempre que|quiero que siempre|no vuelvas a|nunca vuelvas a|ten en cuenta siempre)\b/i,
   /\b(?:guarda|incorpora|mete|a[nñ]ade)\b.{0,50}\b(?:conocimiento|memoria|preferencia|instrucciones?)\b/i,
