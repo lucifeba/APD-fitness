@@ -30,8 +30,8 @@ function escapeHtml(s: string): string {
 const MARK_OPEN = '';
 const MARK_CLOSE = '';
 
-/** Tabla Markdown → texto monoespaciado con columnas alineadas (dentro de un bloque de código). */
-function tableToPre(block: string): string {
+/** Tabla Markdown → apartados legibles en móvil, sin cuadrículas ni bloques de código. */
+function tableToReadableText(block: string): string {
   const rows = block
     .trim()
     .split('\n')
@@ -40,25 +40,63 @@ function tableToPre(block: string): string {
         .trim()
         .replace(/^\||\|$/g, '')
         .split('|')
-        .map((c) => c.trim().replace(/\*\*|__|`/g, '')),
+        .map((c) => c.trim().replace(/\\?<br\s*\/?>/gi, '; ').replace(/\*\*|__|`/g, '')),
     )
     .filter((cells) => !cells.every((c) => /^:?-{2,}:?$/.test(c) || c === ''));
   if (!rows.length) return block;
-  const cols = Math.max(...rows.map((r) => r.length));
-  const widths = Array.from({ length: cols }, (_v, i) => Math.min(28, Math.max(...rows.map((r) => (r[i] ?? '').length))));
-  const line = (cells: string[]) => cells.map((c, i) => c.slice(0, widths[i]).padEnd(widths[i])).join('  ').trimEnd();
-  const out = [line(rows[0])];
-  if (rows.length > 1) out.push(widths.map((w) => '─'.repeat(w)).join('  '));
-  for (const r of rows.slice(1)) out.push(line(r));
-  return '```\n' + out.join('\n') + '\n```';
+  const headers = rows[0];
+  const data = rows.slice(1);
+  if (!data.length) return headers.join(': ');
+  return data
+    .map((cells, rowIndex) => {
+      const title = cells[0] || `Elemento ${rowIndex + 1}`;
+      const details = cells
+        .slice(1)
+        .map((value, index) => `${headers[index + 1] || `Dato ${index + 1}`}: ${value || '—'}`)
+        .join('\n');
+      return `${rowIndex + 1}. ${headers[0] ? `${headers[0]}: ` : ''}${title}${details ? `\n${details}` : ''}`;
+    })
+    .join('\n\n');
+}
+
+function plainMath(value: string): string {
+  let text = value;
+  for (let i = 0; i < 3; i++) text = text.replace(/\\(?:text|mathbf|mathrm|operatorname)\{([^{}]*)\}/g, '$1');
+  return text
+    .replace(/\\(?:rightarrow|to)\b/g, ' da lugar a ')
+    .replace(/\s+\+\s+/g, ' más ')
+    .replace(/\s*=\s*/g, ' da como resultado ')
+    .replace(/\\[,;! ]/g, ' ')
+    .replace(/[{}$]/g, '')
+    .replace(/\\([A-Za-z]+)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Limpia marcas que Telegram mostraría literalmente al usuario. */
+export function normalizeTelegramMarkdown(md: string): string {
+  return md
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => plainMath(String(formula)))
+    .replace(/\$([^$\n]+)\$/g, (_match, formula) => plainMath(String(formula)))
+    .replace(/\\?<br\s*\/?>/gi, '\n')
+    .replace(/^\s*\\?-{3,}\s*$/gm, '')
+    .replace(/\\([*_#>|\[\]()])/g, '$1')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function prepareTelegramMarkdown(md: string): string {
+  const readableTables = md.replace(/(?:^|\n)((?:[ \t]*\|[^\n]*\|[ \t]*(?:\n|$)){2,})/g, (match, table) =>
+    match.replace(table, `${tableToReadableText(table)}\n`),
+  );
+  return normalizeTelegramMarkdown(readableTables);
 }
 
 /** Convierte Markdown básico (lo que suelen escribir los modelos) a HTML de Telegram. */
 export function mdToHtml(md: string): string {
   const blocks: string[] = [];
-  // Telegram no pinta tablas Markdown: las pasamos a bloque monoespaciado alineado.
-  md = md.replace(/(?:^|\n)((?:[ \t]*\|[^\n]*\|[ \t]*(?:\n|$)){2,})/g, (m, table) => m.replace(table, `${tableToPre(table)}\n`));
-  let text = md.replace(/[]/g, '').replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, _lang, code) => {
+  let text = prepareTelegramMarkdown(md).replace(/[]/g, '').replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, _lang, code) => {
     blocks.push(`<pre>${escapeHtml(String(code).replace(/\n$/, ''))}</pre>`);
     return `${MARK_OPEN}${blocks.length - 1}${MARK_CLOSE}`;
   });
@@ -129,7 +167,7 @@ export async function send(env: Env, chatId: string, text: string, opts: SendOpt
 
 /** Quita las marcas de Markdown para un envío en texto plano. */
 function stripMd(md: string): string {
-  return md
+  return prepareTelegramMarkdown(md)
     .replace(/```(\w+)?\n?([\s\S]*?)```/g, '$2')
     .replace(/`([^`\n]+)`/g, '$1')
     .replace(/\*\*([^*\n]+)\*\*/g, '$1')
