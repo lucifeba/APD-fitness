@@ -131,7 +131,15 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   const googleOk = await googleConfigured(env);
   const system = await systemPrompt(env, { chatId: opts.chatId, tz: opts.tz, query: lastUser.slice(0, 1000), summary: opts.summary, depth });
   const { defs: allToolDefs, lookup } = await allTools(env, googleOk);
-  const tools = relevantToolDefs(allToolDefs, lastUser);
+  // Las respuestas cortas ("creala", "hazlo", "si") dependen del turno anterior.
+  // Seleccionar herramientas solo con el ultimo mensaje hacia desaparecer Calendar,
+  // Gmail, Tasks, etc. justo cuando el usuario confirmaba la accion preparada.
+  const recentToolContext = opts.history
+    .slice(-6)
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => message.content)
+    .join('\n');
+  const tools = relevantToolDefs(allToolDefs, recentToolContext || lastUser);
   const messages: ChatMessage[] = [{ role: 'system', content: system }, ...opts.history];
   const added: ChatMessage[] = [];
   const pending: PendingAction[] = [];

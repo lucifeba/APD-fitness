@@ -46,6 +46,20 @@ export function driveFolderUrls(text: string): string[] {
   return [...new Set([...text.matchAll(/https?:\/\/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/[\w-]+[^\s)]*/gi)].map((m) => m[0]))];
 }
 
+/** Reconoce solo respuestas breves e inequívocas a una acción pendiente. */
+export function textConfirmationIntent(text: string): 'confirm' | 'cancel' | null {
+  const value = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!¡¿?]+$/g, '')
+    .trim();
+  if (/^(si|confirmo|confirmar|adelante|hazlo|hazla|crealo|creala|vale|ok|de acuerdo|correcto|procede|continua)$/.test(value)) return 'confirm';
+  if (/^(no|cancelar|cancela|dejalo|dejala|no lo hagas|no la hagas)$/.test(value)) return 'cancel';
+  return null;
+}
+
 export class SecretarioSession implements DurableObject {
   private state!: State;
   private loaded = false;
@@ -219,6 +233,7 @@ export class SecretarioSession implements DurableObject {
     if (text.startsWith('/')) {
       if (await this.handleCommand(chatId, text, msg.message_id)) return;
     }
+    if (await this.handleTextConfirmation(chatId, text, msg.message_id)) return;
     await typing(this.env, chatId);
     const incoming = await this.buildIncoming(chatId, msg);
     if (!incoming.text.trim()) {
@@ -446,6 +461,71 @@ export class SecretarioSession implements DurableObject {
     state.history = state.history.slice(-KEEP_AFTER_SUMMARY);
   }
 
+  /** Ejecuta la única acción pendiente cuando el usuario confirma también por texto. */
+  private async handleTextConfirmation(chatId: string, text: string, messageId: number): Promise<boolean> {
+    const intent = textConfirmationIntent(text);
+    if (!intent) return false;
+    const state = await this.load();
+    const actions = Object.values(state.pending).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (!actions.length) return false;
+    if (actions.length > 1) {
+      await send(this.env, chatId, 'Hay varias acciones pendientes. Pulsa el botón de la que quieras confirmar o cancelar para evitar ejecutar la incorrecta.', { plain: true, replyTo: messageId });
+      return true;
+    }
+    const action = actions[0];
+    delete state.pending[action.id];
+    await this.save();
+    if (intent === 'cancel') {
+      await audit(this.env, chatId, `${action.tool}:cancelada`, action.args, false);
+      state.history.push({ role: 'user', content: `[He cancelado la acción: ${action.summary.split('\n')[0]}]` });
+      await this.save();
+      await send(this.env, chatId, `Cancelado: ${action.summary.split('\n')[0]}`, { plain: true, replyTo: messageId });
+      return true;
+    }
+    await send(this.env, chatId, 'Confirmado, lo hago ahora.', { plain: true, replyTo: messageId, skipHistory: true });
+    await this.executePendingAction(chatId, action);
+    return true;
+  }
+
+  private async executePendingAction(chatId: string, action: PendingAction): Promise<void> {
+    const spec = await resolveTool(this.env, action.tool);
+    if (!spec) {
+      await send(this.env, chatId, `No encuentro la herramienta ${action.tool}.`, { plain: true });
+      return;
+    }
+    const ctx: ToolCtx = {
+      env: this.env,
+      chatId,
+      confirmed: true,
+      depth: 0,
+      tz: this.tz,
+      onTasksChanged: () => this.rescheduleAlarm(),
+      sendFile: (name, content, caption) => sendDocument(this.env, chatId, name, content, caption),
+      sendText: async (text) => void (await send(this.env, chatId, text)),
+      runSubagent: async () => 'no disponible',
+    };
+    try {
+      const result = await spec.run(action.args, ctx);
+      if (result && typeof result === 'object' && 'error' in result) throw new Error(String((result as { error: unknown }).error));
+      if (/^(calendar_create|calendar_update|calendar_delete|pharmacy_visit_create)$/.test(action.tool)) {
+        this.ctx.waitUntil(syncOperationalData(this.env).catch((e) => console.warn('calendar crm sync', e?.message)));
+        this.ctx.waitUntil(
+          syncReminders(this.env, chatId, this.tz)
+            .then(async (n) => {
+              if (n) await this.rescheduleAlarm();
+            })
+            .catch((e) => console.warn('avisos', e?.message)),
+        );
+      }
+      const pretty = typeof result === 'string' ? result : JSON.stringify(result);
+      this.state.history.push({ role: 'user', content: `[He confirmado la acción "${action.summary.split('\n')[0]}". Resultado: ${clip(pretty, 400)}]` });
+      await this.save();
+      await send(this.env, chatId, `Hecho: ${action.summary.split('\n')[0]}\n${clip(pretty, 500)}`, { plain: true });
+    } catch (e: any) {
+      await send(this.env, chatId, `La acción confirmada ha fallado: ${clip(String(e?.message ?? e), 500)}`, { plain: true });
+    }
+  }
+
   private async handleCallback(cb: any): Promise<void> {
     const state = await this.load();
     const chatId = String(cb.message?.chat?.id ?? cb.from.id);
@@ -469,29 +549,7 @@ export class SecretarioSession implements DurableObject {
       return;
     }
     await answerCallback(this.env, cb.id, 'Confirmado, en marcha…');
-    const spec = await resolveTool(this.env, action.tool);
-    if (!spec) return void (await send(this.env, chatId, `No encuentro la herramienta ${action.tool}.`, { plain: true }));
-    const ctx: ToolCtx = {
-      env: this.env,
-      chatId,
-      confirmed: true,
-      depth: 0,
-      tz: this.tz,
-      onTasksChanged: () => this.rescheduleAlarm(),
-      sendFile: (name, content, caption) => sendDocument(this.env, chatId, name, content, caption),
-      sendText: async (text) => void (await send(this.env, chatId, text)),
-      runSubagent: async () => 'no disponible',
-    };
-    try {
-      const result = await spec.run(action.args, ctx);
-      if(/^(calendar_create|calendar_update|calendar_delete|pharmacy_visit_create)$/.test(action.tool))this.ctx.waitUntil(syncOperationalData(this.env).catch((e)=>console.warn('calendar crm sync',e?.message)));
-      const pretty = typeof result === 'string' ? result : JSON.stringify(result);
-      state.history.push({ role: 'user', content: `[He confirmado la acción "${action.summary.split('\n')[0]}". Resultado: ${clip(pretty, 400)}]` });
-      await this.save();
-      await send(this.env, chatId, `Hecho: ${action.summary.split('\n')[0]}\n${clip(pretty, 500)}`, { plain: true });
-    } catch (e: any) {
-      await send(this.env, chatId, `La acción confirmada ha fallado: ${clip(String(e?.message ?? e), 500)}`, { plain: true });
-    }
+    await this.executePendingAction(chatId, action);
   }
 
   // ---------- Comandos ----------
