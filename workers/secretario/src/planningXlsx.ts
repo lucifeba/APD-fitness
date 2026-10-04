@@ -65,13 +65,13 @@ function regionValue(...values:string[]):Region|''{
 const aliases={
   date:['fecha','dia','fecha visita','fecha planificada'],
   delegate:['delegado','delegada','representante','vendedor','usuario','visitador'],
-  pharmacy:['farmacia','cliente','nombre cliente','razon social','nombre institucion','nombre de la institucion'],
+  pharmacy:['farmacia','cliente','quien','nombre cliente','razon social','nombre institucion','nombre de la institucion'],
   address:['direccion','domicilio','localizacion','ubicacion'],
   city:['localidad','municipio','poblacion','ciudad','provincia'],
-  classification:['clasificacion','clas crm','segmento','categoria','tipo cliente'],
-  route:['ruta','zona','itinerario','ruta zona'],
+  classification:['clasificacion','clasificacion fy 25 26','clasificacion fy 26 27','clas crm','segmento','categoria','tipo cliente'],
+  route:['ruta','rutas','zona','itinerario','ruta zona'],
   region:['region','area','territorio'],
-  clientId:['vdl','codigo cliente','id cliente','cod cliente'],
+  clientId:['vdl','id externo 1','codigo cliente','id cliente','cod cliente'],
   notes:['observaciones','notas','comentarios'],
   time:['hora','horario','hora visita'],
 } as const;

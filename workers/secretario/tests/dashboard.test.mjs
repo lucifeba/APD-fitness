@@ -11,7 +11,9 @@ const salesUiSource=readFileSync(new URL('../src/salesUi.ts',import.meta.url),'u
 const salesUiJs=ts.transpileModule(salesUiSource,{compilerOptions}).outputText.replace(/export /g,'');
 const crmUiSource=readFileSync(new URL('../src/crmUi.ts',import.meta.url),'utf8');
 const crmUiJs=ts.transpileModule(crmUiSource,{compilerOptions}).outputText.replace(/export /g,'');
-const js=planningJs+'\n'+salesUiJs+'\n'+crmUiJs+'\n'+ts.transpileModule(source,{compilerOptions}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
+const kpiUiSource=readFileSync(new URL('../src/kpiUi.ts',import.meta.url),'utf8');
+const kpiUiJs=ts.transpileModule(kpiUiSource,{compilerOptions}).outputText.replace(/export /g,'');
+const js=planningJs+'\n'+salesUiJs+'\n'+crmUiJs+'\n'+kpiUiJs+'\n'+ts.transpileModule(source,{compilerOptions}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
 const {page,appShell}=new Function(js+';return {page,appShell}')();
 test('programming controls only appear for administrator',()=>{
  assert.ok(appShell('info@apdsport.com').includes('id="programming"'));
@@ -38,6 +40,16 @@ test('generated browser JavaScript parses and exposes Aravitas sales dashboard',
  assert.ok(html.includes('knowledge-text'));
  assert.ok(!html.includes('Transcribir audio'));
  assert.ok(html.includes('Planificación mensual inteligente'));
+ assert.ok(html.includes('Seguimiento KPI'));
+ assert.ok(html.includes('Seguimiento de delegados y rutas'));
+ assert.ok(html.includes('Incorporar planificación'));
+ assert.ok(html.includes('Incorporar reportes'));
+ assert.ok(html.includes('Plan de acción individual'));
+ assert.ok(html.includes('Formación, dinámica o role play'));
+ assert.ok(script.includes('Visitas planificadas'));
+ assert.ok(script.includes('Realizadas el día previsto'));
+ assert.ok(script.includes('Cobertura del grupo objetivo'));
+ assert.ok(script.includes('Detalle por farmacia'));
  assert.ok(html.includes('planning-file'));
  assert.ok(html.includes('Previsualización editable'));
  assert.ok(html.includes('Aprobar y crear eventos'));

@@ -18,6 +18,7 @@ import { crmApi, importCrmExcel, syncCrmExcel } from './crm';
 import { transcribe } from './media';
 import { salesDashboardApi } from './salesDashboard';
 import { salesAnalyticsApi } from './salesAnalytics';
+import { delegateKpiApi } from './delegateKpis';
 
 export { SecretarioSession };
 
@@ -171,6 +172,10 @@ export default {
         if (url.pathname === '/api/sales-dashboard/analytics' || url.pathname === '/api/sales-dashboard/openings.xlsx') {
           if (!email) return json({error:'Inicia sesión con Google.'},401);
           return salesAnalyticsApi(req,env);
+        }
+        if (url.pathname === '/api/delegate-kpis' || url.pathname === '/api/delegate-kpis/import' || url.pathname === '/api/delegate-kpis/goals') {
+          if (!email) return json({error:'Inicia sesión con Google.'},401);
+          return delegateKpiApi(req,env,email);
         }
         if (url.pathname === '/api/draft' && req.method === 'POST') {
           const b = await req.json<{ to?: string; subject?: string; body?: string }>();

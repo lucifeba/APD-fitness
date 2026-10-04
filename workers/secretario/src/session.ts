@@ -18,6 +18,7 @@ import { addDays, clip, inQuietHours, localParts, localTime, longDate, nextCron,
 import { importSalesDashboard, telegramDashboardSummary } from './salesDashboard';
 import { importPlanningSource, syncOperationalData, telegramPlanningSummary } from './planningStore';
 import { isConfigurationInstruction, saveConfigurationInstruction } from './configKnowledge';
+import { importDelegateKpiWorkbook, telegramDelegateKpiSummary } from './delegateKpis';
 import {
   isLongTelegramUpdate,
   TELEGRAM_JOB_LEASE_MS,
@@ -354,6 +355,23 @@ export class SecretarioSession implements DurableObject {
           if (/cuadro\s*mando/i.test(name) && /\.xlsx$/i.test(name)) {
             const result = await importSalesDashboard(this.env, bytes, name, 'telegram', String(msg.from?.username || msg.from?.id || chatId));
             parts.push(`[${telegramDashboardSummary(result)}]`);
+            return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind };
+          }
+          if (/reporte.*visitas|visitas.*reporte|callreport|reporte.*rutas/i.test(name) && /\.xlsx$/i.test(name)) {
+            const result = await importDelegateKpiWorkbook(this.env, bytes, name, 'report', 'telegram', String(msg.from?.username || msg.from?.id || chatId));
+            parts.push(`[${telegramDelegateKpiSummary(result)} Abre ara.nuviamedia.com y entra en “Seguimiento KPI” para ver los filtros y el detalle.]`);
+            return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind };
+          }
+          if (/planificaci[oó]n.*delegados?|delegados?.*planificaci[oó]n/i.test(name) && /\.xlsx$/i.test(name)) {
+            const kpi = await importDelegateKpiWorkbook(this.env, bytes, name, 'planning', 'telegram', String(msg.from?.username || msg.from?.id || chatId));
+            parts.push(`[${telegramDelegateKpiSummary(kpi)}]`);
+            try {
+              const planning = await importPlanningSource(this.env, bytes, name, kpi.period, 'telegram', String(msg.from?.username || msg.from?.id || chatId));
+              parts.push(`[También está disponible para preparar tu planificación de acompañamientos: ${telegramPlanningSummary(planning)}]`);
+            } catch (error) {
+              console.warn('dual planning import', error instanceof Error ? error.message : String(error));
+              parts.push('[El seguimiento KPI se ha guardado correctamente. La propuesta de acompañamientos se preparará desde la pestaña Planificación cuando la necesites.]');
+            }
             return { chatId, messageId: msg.message_id, text: parts.join('\n'), kind };
           }
           if (/planificaci[oó]n|planning|delegad/i.test(name) && /\.xlsx$/i.test(name)) {
