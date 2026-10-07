@@ -61,6 +61,25 @@ export function textConfirmationIntent(text: string): 'confirm' | 'cancel' | nul
   return null;
 }
 
+function pendingConflictKey(action: PendingAction): string {
+  if (action.tool === 'calendar_update') return `${action.tool}|${String(action.args.calendar_id || 'primary')}|${String(action.args.id || '')}`;
+  if (action.tool === 'calendar_create') return `${action.tool}|${String(action.args.calendar_id || 'primary')}|${String(action.args.summary || '')}|${String(action.args.start || '')}|${String(action.args.end || '')}`;
+  if (action.tool === 'pharmacy_visit_create') return `${action.tool}|${String(action.args.pharmacy || '')}|${String(action.args.date || '')}|${String(action.args.time || '')}`;
+  return `${action.tool}|${JSON.stringify(action.args)}`;
+}
+
+export function friendlyActionError(error: unknown): string {
+  const detail = String(error instanceof Error ? error.message : error);
+  if (/Invalid start time|Invalid end time|fecha y la hora|hora de fin|inicio y el fin/i.test(detail))
+    return 'Google Calendar ha rechazado el horario. No se ha modificado el evento; revisa la fecha y las horas de inicio y fin.';
+  if (/Google 401|Google 403|no est[aá] conectado|refresh_token/i.test(detail))
+    return 'Google necesita volver a autorizarse. No se ha modificado nada; usa /google y repite la confirmación.';
+  if (/Google 404/i.test(detail)) return 'Ese evento ya no existe o ha cambiado de calendario. No se ha modificado nada; buscaré de nuevo la versión actual.';
+  if (/Google 429|Google 5\d\d|agot[oó].*espera|network|fetch failed/i.test(detail))
+    return 'Google está respondiendo con una incidencia temporal. No se ha perdido la acción y podrás volver a confirmarla.';
+  return 'No he podido completar la acción y no he dado el cambio por realizado.';
+}
+
 export class SecretarioSession implements DurableObject {
   private state!: State;
   private loaded = false;
@@ -430,7 +449,15 @@ export class SecretarioSession implements DurableObject {
       // Guardamos solo lo que aporta contexto: el texto final del asistente (las llamadas a herramientas se resumen).
       const used = result.toolsUsed.length ? `\n[herramientas usadas: ${[...new Set(result.toolsUsed)].join(', ')}]` : '';
       state.history.push({ role: 'assistant', content: `${result.text}${used}` });
-      for (const p of result.pending) state.pending[p.id] = p;
+      const staleBefore = Date.now() - 24 * 60 * 60_000;
+      for (const existing of Object.values(state.pending)) {
+        if (Date.parse(existing.createdAt) < staleBefore) delete state.pending[existing.id];
+      }
+      for (const p of result.pending) {
+        const key = pendingConflictKey(p);
+        for (const existing of Object.values(state.pending)) if (pendingConflictKey(existing) === key) delete state.pending[existing.id];
+        state.pending[p.id] = p;
+      }
       const keyboard = result.pending.map((p) => [
         { text: `✅ Confirmar: ${clip(p.summary.split('\n')[0], 28)}`, data: `ok:${p.id}` },
         { text: '❌ Cancelar', data: `no:${p.id}` },
@@ -486,22 +513,23 @@ export class SecretarioSession implements DurableObject {
     const state = await this.load();
     const actions = Object.values(state.pending).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     if (!actions.length) return false;
-    if (actions.length > 1) {
+    const latestBatch = actions[0].batchId ? actions.filter((action) => action.batchId === actions[0].batchId) : [];
+    const selected = latestBatch.length ? latestBatch.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : actions.length === 1 ? [actions[0]] : [];
+    if (!selected.length) {
       await send(this.env, chatId, 'Hay varias acciones pendientes. Pulsa el botón de la que quieras confirmar o cancelar para evitar ejecutar la incorrecta.', { plain: true, replyTo: messageId });
       return true;
     }
-    const action = actions[0];
-    delete state.pending[action.id];
+    for (const action of selected) delete state.pending[action.id];
     await this.save();
     if (intent === 'cancel') {
-      await audit(this.env, chatId, `${action.tool}:cancelada`, action.args, false);
-      state.history.push({ role: 'user', content: `[He cancelado la acción: ${action.summary.split('\n')[0]}]` });
+      for (const action of selected) await audit(this.env, chatId, `${action.tool}:cancelada`, action.args, false);
+      state.history.push({ role: 'user', content: `[He cancelado ${selected.length === 1 ? `la acción: ${selected[0].summary.split('\n')[0]}` : `${selected.length} acciones propuestas juntas`}.]` });
       await this.save();
-      await send(this.env, chatId, `Cancelado: ${action.summary.split('\n')[0]}`, { plain: true, replyTo: messageId });
+      await send(this.env, chatId, selected.length === 1 ? `Cancelado: ${selected[0].summary.split('\n')[0]}` : `Canceladas las ${selected.length} acciones propuestas.`, { plain: true, replyTo: messageId });
       return true;
     }
-    await send(this.env, chatId, 'Confirmado, lo hago ahora.', { plain: true, replyTo: messageId, skipHistory: true });
-    await this.executePendingAction(chatId, action);
+    await send(this.env, chatId, selected.length === 1 ? 'Confirmado, lo hago ahora.' : `Confirmado, ejecuto ahora los ${selected.length} cambios propuestos.`, { plain: true, replyTo: messageId, skipHistory: true });
+    for (const action of selected) await this.executePendingAction(chatId, action);
     return true;
   }
 
@@ -540,7 +568,18 @@ export class SecretarioSession implements DurableObject {
       await this.save();
       await send(this.env, chatId, `Hecho: ${action.summary.split('\n')[0]}\n${clip(pretty, 500)}`, { plain: true });
     } catch (e: any) {
-      await send(this.env, chatId, `La acción confirmada ha fallado: ${clip(String(e?.message ?? e), 500)}`, { plain: true });
+      const detail = clip(String(e?.message ?? e), 2000);
+      const incident = uid('inc_');
+      const retryable = /Google 429|Google 5\d\d|agot[oó].*espera|network|fetch failed/i.test(detail);
+      await audit(this.env, chatId, `${action.tool}:error`, { incident, args: action.args, detail }, false).catch(() => undefined);
+      if (retryable) {
+        this.state.pending[action.id] = action;
+        await this.save();
+      }
+      await send(this.env, chatId, `${friendlyActionError(e)} Incidencia ${incident} registrada.${retryable ? ' La acción sigue pendiente para reintentarla sin prepararla de nuevo.' : ''}`, {
+        plain: true,
+        keyboard: retryable ? [[{ text: '✅ Reintentar', data: `ok:${action.id}` }, { text: '❌ Cancelar', data: `no:${action.id}` }]] : undefined,
+      });
     }
   }
 

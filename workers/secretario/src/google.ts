@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { getSetting, setSetting } from './db';
 import { extractText } from './knowledge';
-import { base64UrlDecode, base64UrlEncode, fetchWithTimeout, htmlToText } from './util';
+import { base64UrlDecode, base64UrlEncode, calendarBoundary, calendarSpan, fetchWithTimeout, htmlToText, type CalendarBoundary } from './util';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
@@ -349,13 +349,18 @@ export async function calendarCreate(
   ev: { summary: string; start: string; end: string; description?: string; location?: string; attendees?: string[]; calendar_id?: string; transparency?:'transparent'|'opaque'; id?:string },
   tz: string,
 ): Promise<CalEvent> {
-  const allDay = /^\d{4}-\d{2}-\d{2}$/.test(ev.start);
+  const start = calendarBoundary(ev.start, tz);
+  const end = calendarBoundary(ev.end, tz);
+  if (('date' in start) !== ('date' in end)) throw new Error('El inicio y el fin del evento deben ser ambos con hora o ambos de día completo.');
+  const startMs = Date.parse('date' in start ? `${start.date}T00:00:00Z` : start.dateTime);
+  const endMs = Date.parse('date' in end ? `${end.date}T00:00:00Z` : end.dateTime);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) throw new Error('La hora de fin debe ser posterior a la hora de inicio.');
   const body: any = {
     summary: ev.summary,
     description: ev.description,
     location: ev.location,
-    start: allDay ? { date: ev.start } : { dateTime: ev.start, timeZone: tz },
-    end: allDay ? { date: ev.end } : { dateTime: ev.end, timeZone: tz },
+    start,
+    end,
     attendees: ev.attendees?.map((email) => ({ email })),
     transparency: ev.transparency,
     id: ev.id,
@@ -384,9 +389,18 @@ export async function calendarUpsert(
 export async function calendarUpdate(env: Env, id: string, patch: Record<string, unknown>, tz: string, calendarId?: string): Promise<CalEvent> {
   const body: any = { ...patch };
   delete body.calendar_id;
-  if (typeof patch.start === 'string') body.start = /^\d{4}-\d{2}-\d{2}$/.test(patch.start) ? { date: patch.start } : { dateTime: patch.start, timeZone: tz };
-  if (typeof patch.end === 'string') body.end = /^\d{4}-\d{2}-\d{2}$/.test(patch.end) ? { date: patch.end } : { dateTime: patch.end, timeZone: tz };
-  const j = await gapi<any>(env, `${calPath(calendarId)}/${encodeURIComponent(id)}`, {
+  const path = `${calPath(calendarId)}/${encodeURIComponent(id)}`;
+  if (typeof patch.start === 'string' || typeof patch.end === 'string') {
+    const current = await gapi<any>(env, path);
+    const fromGoogle = (point: any): CalendarBoundary => point?.date
+      ? { date: String(point.date) }
+      : { dateTime: String(point?.dateTime || ''), timeZone: String(point?.timeZone || tz) };
+    const currentStart = fromGoogle(current.start), currentEnd = fromGoogle(current.end);
+    const { start, end } = calendarSpan(patch.start, patch.end, currentStart, currentEnd, tz);
+    body.start = start;
+    body.end = end;
+  }
+  const j = await gapi<any>(env, path, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

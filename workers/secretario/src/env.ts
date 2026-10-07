@@ -111,4 +111,6 @@ export interface PendingAction {
   args: Record<string, unknown>;
   summary: string;
   createdAt: string;
+  /** Agrupa las acciones propuestas en una misma respuesta del agente. */
+  batchId?: string;
 }

@@ -17,7 +17,9 @@ test('Telegram accepts explicit confirmation written as ordinary text', () => {
   assert.match(session, /await this\.executePendingAction\(chatId, action\)/);
 });
 
-test('ambiguous text confirmation never executes more than one pending action', () => {
-  assert.match(session, /if \(actions\.length > 1\)/);
+test('ambiguous old confirmations remain safe and a current batch executes together', () => {
+  assert.match(session, /if \(!selected\.length\)/);
   assert.match(session, /varias acciones pendientes/);
+  assert.match(session, /latestBatch/);
+  assert.match(session, /for \(const action of selected\) await this\.executePendingAction/);
 });

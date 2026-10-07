@@ -143,6 +143,7 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
   const messages: ChatMessage[] = [{ role: 'system', content: system }, ...opts.history];
   const added: ChatMessage[] = [];
   const pending: PendingAction[] = [];
+  const pendingBatchId = uid('batch_');
   const toolsUsed: string[] = [];
   let provider = '';
   let leakedTraceRetries = 0;
@@ -227,7 +228,7 @@ export async function runAgent(env: Env, opts: AgentOptions): Promise<AgentResul
           }
         }
         if (result && typeof result === 'object' && (result as any).needs_confirmation) {
-          const p: PendingAction = { id: uid('p_'), tool: call.name, args: call.arguments ?? {}, summary: String((result as any).summary), createdAt: new Date().toISOString() };
+          const p: PendingAction = { id: uid('p_'), tool: call.name, args: call.arguments ?? {}, summary: String((result as any).summary), createdAt: new Date().toISOString(), batchId: pendingBatchId };
           pending.push(p);
           result = { status: 'pendiente_de_confirmacion', accion: p.summary, nota: 'Dile al usuario en una frase qué harás cuando pulse Confirmar. No vuelvas a llamar a esta herramienta.' };
         }
