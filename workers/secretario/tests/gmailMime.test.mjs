@@ -10,8 +10,8 @@ const js = ts
   .replace(/export /g, '');
 const base64UrlEncode = (value) => Buffer.from(value, 'utf8').toString('base64url');
 const writingJs = ts.transpileModule(readFileSync(new URL('../src/writing.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022 } }).outputText.replace(/export /g, '');
-const { renderWriting } = new Function(`${writingJs};return {renderWriting}`)();
-const { buildRaw } = new Function('base64UrlEncode', 'renderWriting', `${js};return {buildRaw}`)(base64UrlEncode, renderWriting);
+const { renderWriting, assertSummaryDraft, isSummaryRequest, summaryOutputIssue } = new Function(`${writingJs};return {renderWriting,assertSummaryDraft,isSummaryRequest,summaryOutputIssue}`)();
+const { buildRaw, gmailDraft } = new Function('base64UrlEncode', 'renderWriting', 'assertSummaryDraft', `${js};return {buildRaw,gmailDraft}`)(base64UrlEncode, renderWriting, assertSummaryDraft);
 
 function partsOf(raw) {
   const mime = Buffer.from(raw, 'base64url').toString('utf8');
@@ -59,4 +59,17 @@ test('el formato de correo escapa HTML arbitrario y no pierde euros ni acentos',
   assert.doesNotMatch(formatted.html, /<script>/);
   assert.match(formatted.html, /&lt;script&gt;/);
   assert.match(formatted.text, /Málaga: 4 M € y \+71 %/);
+});
+
+test('reconoce actas y resúmenes sin confundir una petición explícita de transcripción literal', () => {
+  assert.equal(isSummaryRequest('Acta Call 19 octubre'), true);
+  assert.equal(isSummaryRequest('Haz un resumen para un mail'), true);
+  assert.equal(isSummaryRequest('Correo con la transcripción literal'), false);
+  assert.equal(summaryOutputIssue('Temas tratados\nSe practicará el silencio en cinco visitas.'), null);
+});
+
+test('bloquea el borrador defectuoso antes de acceder a Gmail', async () => {
+  await assert.rejects(gmailDraft({}, '', 'Acta Call 19 octubre', 'Asistentes\n- Orador A\n- Orador B (Carlos, Patricia)'), /Borrador no guardado/);
+  assert.throws(() => assertSummaryDraft('Resumen reunión', '00:03:25 Intervención del equipo'), /marcas de tiempo/);
+  assert.doesNotThrow(() => assertSummaryDraft('Resumen call', 'Esta semana cada delegado practicará en cinco visitas, dejando tres o cuatro segundos tras la pregunta.'));
 });

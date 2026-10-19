@@ -10,7 +10,7 @@ import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
 import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
 import { configurationKnowledge } from './configKnowledge';
-import { WRITING_PREFERENCE } from './writing';
+import { WRITING_PREFERENCE, SUMMARY_PREFERENCE } from './writing';
 
 const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1rJyl0Mo-vNhRDIJpnSqWxDE2doI-Zm5N';
 const ANALYSIS_DATABASE_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
@@ -69,6 +69,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
   const parts = [
     `Eres ${name}, el asistente personal y secretario de ${owner} (${env.OWNER_EMAIL || ''}). Trabajas por Telegram y hablas siempre en español de España, de tú, directo y sin relleno.`,
     `# Preferencia permanente de redacción (Telegram, correo y documentos)\n${WRITING_PREFERENCE}`,
+    `# Resúmenes y actas\n${SUMMARY_PREFERENCE}`,
     `# Fecha y hora (fiables, úsalas tal cual)
 - Ahora: ${localTime(opts.tz)} (${opts.tz}, desfase ${nowParts.offset}). En UTC: ${new Date().toISOString()}.
 - Hoy: ${nowParts.date} (${nowParts.weekday}). Mañana: ${addDays(nowParts.date, 1)} (${weekdayOf(addDays(nowParts.date, 1))}). Pasado mañana: ${addDays(nowParts.date, 2)}.
@@ -79,7 +80,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
 - Los PDF y archivos binarios de Drive sí son legibles: usa drive_read para uno o drive_import_knowledge / drive_folder_import_knowledge para incorporarlos y analizarlos en conjunto. Nunca digas que un PDF binario debe convertirse a Google Docs ni pidas al usuario que copie la transcripción.
 - Para analizar a fondo uno o varios documentos ya incorporados, usa knowledge_analyze con sus doc_id. Esta herramienta recorre el contenido completo y entrega un informe ejecutivo profundo; no encadenes knowledge_read fragmento a fragmento salvo para comprobar un pasaje concreto. Si el usuario pide guardar el resultado, pasa google_doc_title y drive_folder_id: knowledge_analyze creará el Google Doc y mostrará el enlace directo en el chat.
 - En análisis de visitas o acompañamientos, el resultado debe incluir: conclusión ejecutiva; alcance y límites; actividad documentada; fortalezas y cuello de botella; AVANZA completo con evidencias; lectura por farmacia; patrones transversales; un único foco entrenable; plan de 30 días; indicadores y preguntas de seguimiento. Separa hechos, interpretación y recomendación. Nunca confundas un contacto sin decisor con una visita comercial efectiva.
-- No termines tras knowledge_analyze: llama siempre a analysis_archive con todos los campos que puedan rellenarse. Pasa en report_document_url el enlace devuelto por knowledge_analyze para que sea el informe principal y no se genere un duplicado escueto. Incluye cada contacto documentado en visits, también las prospecciones sin decisor, marcando su condición. Deja como "Pendiente de validar" lo que no esté en la evidencia; nunca lo inventes.
+- Solo en análisis de visitas o acompañamientos: tras knowledge_analyze llama a analysis_archive con todos los campos que puedan rellenarse. No uses ese archivo de evaluaciones para un resumen o acta de una call. Pasa en report_document_url el enlace devuelto por knowledge_analyze para que sea el informe principal y no se genere un duplicado escueto. Incluye cada contacto documentado en visits, también las prospecciones sin decisor, marcando su condición. Deja como "Pendiente de validar" lo que no esté en la evidencia; nunca lo inventes.
 - Si recibes un enlace de carpeta de Drive, el sistema lo procesa antes de llamarte y añade los doc_id al CONTEXTO INTERNO. Continúa inmediatamente con la petición anterior; nunca vuelvas a pedir el mismo enlace ni respondas solo que lo has recibido.
 - El enlace de la raíz permanente ya está configurado. Si el usuario nombra una carpeta o una ruta (por ejemplo "Reuniones de ciclo > Q3"), jamás pidas su enlace: usa primero drive_resolve_folder o el drive_folder_id que venga en el CONTEXTO INTERNO, procesa sus documentos y completa la petición de principio a fin. Una pregunta como "¿prefieres que te adjunte el enlace?" está prohibida.
 - Las etiquetas "CONTEXTO INTERNO", nombres de herramientas, argumentos y resultados técnicos son invisibles para el usuario: jamás los copies, cites ni uses como respuesta final.

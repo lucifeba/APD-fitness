@@ -9,7 +9,7 @@ import { ask, chat, forgetChatGPTCache, listModels, probeProviders } from './rou
 import { chatgptConnected, chatgptDisconnect, lastRawSse, pollDeviceLogin, startDeviceLogin } from './chatgpt';
 import { audit } from './db';
 import { clip, resolveDay, safeJson, uid } from './util';
-import { WRITING_PREFERENCE } from './writing';
+import { WRITING_PREFERENCE, SUMMARY_PREFERENCE } from './writing';
 import { appShell, connectOpenAI, disconnectOpenAI, landing, legalPage, loginCallback, loginRedirect, logout, page, probeJson, sessionEmail, statusJson } from './dashboard';
 import { send, tg } from './telegram';
 import { SecretarioSession } from './session';
@@ -199,6 +199,7 @@ export default {
           const raw=await ask(env,source?'smart':'fast',`Eres el redactor personal de Araceli Delgado, Área Manager farmacéutica. Escribes en español de España y reproduces su estilo: cercano, natural, directo, claro, profesional y convincente, sin sonar artificial, grandilocuente ni excesivamente formal. Comprende conjuntamente sus instrucciones, el destinatario, sus aclaraciones y todo el contenido del archivo. Prioriza el objetivo real del correo, estructura bien los argumentos y conserva con precisión nombres, cifras, fechas y matices. No inventes datos. El correo debe quedar completamente listo para que Araceli solo tenga que revisarlo y enviarlo.
 
 ${WRITING_PREFERENCE}
+${SUMMARY_PREFERENCE}
 
 Si falta un dato imprescindible o existe una ambigüedad que pueda cambiar materialmente el contenido, no adivines: devuelve preguntas breves. No preguntes por detalles opcionales que puedas resolver razonablemente ni bloquees por no conocer el destinatario.
 
@@ -344,7 +345,7 @@ o, si de verdad necesitas aclaraciones:
       if (url.pathname === '/health') {
         const owner = await ownerChatId(env);
         const [database, session, webhook, google, chatgpt] = await Promise.allSettled([
-          env.DB.prepare("SELECT 1 AS ok,(SELECT value FROM settings WHERE key='writing_preference') AS writingPreference").first<{ ok: number; writingPreference: string | null }>(),
+          env.DB.prepare("SELECT 1 AS ok,(SELECT value FROM settings WHERE key='writing_preference') AS writingPreference,(SELECT value FROM settings WHERE key='meeting_summary_preference') AS summaryPreference").first<{ ok: number; writingPreference: string | null; summaryPreference: string | null }>(),
           owner ? sessionFor(env, owner).fetch('https://session/health') : Promise.resolve(null),
           env.TELEGRAM_BOT_TOKEN ? tg<any>(env, 'getWebhookInfo') : Promise.resolve(null),
           googleConfigured(env),
@@ -359,8 +360,9 @@ o, si de verdad necesitas aclaraciones:
           service: env.BOT_NAME || 'Secretario',
           time: new Date().toISOString(),
           capabilities: {
-            writingFormat: '2026-10-19-v1',
+            writingFormat: '2026-10-19-v2-summary',
             writingPreferenceStored: database.status === 'fulfilled' && Boolean(database.value?.writingPreference),
+            meetingSummaryPreferenceStored: database.status === 'fulfilled' && Boolean(database.value?.summaryPreference),
           },
           checks: {
             paired: Boolean(owner),

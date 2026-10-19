@@ -1,6 +1,27 @@
 /** Preferencia permanente de Araceli. Se aplica al redactar y antes de guardar. */
 export const WRITING_PREFERENCE = 'Redacta siempre en castellano natural y legible, con párrafos separados. Se permiten negrita y cursiva reales, nunca sus marcas visibles. No muestres barras de escape, almohadillas de títulos, separadores de código, tablas Markdown ni entidades HTML como &#x37;. Conserva acentos, porcentajes y el símbolo €. La marca se escribe ReforVit, con V. En actas y correos no inventes participantes, responsables, cifras, plazos, acuerdos ni acciones realizadas: usa la fuente y pregunta si falta un dato imprescindible. No afirmes haber archivado o enviado nada sin un resultado verificado.';
 
+export const SUMMARY_PREFERENCE = 'Si Araceli pide un resumen, acta o correo de una reunión, entrega una síntesis por temas, conclusiones y próximos pasos, no una transcripción ni una interacción de oradores. Nunca incluyas Orador A/B, Speaker, marcas de tiempo, turnos de palabra, asistentes deducidos de voces ni diálogos. Conserva el significado, cifras y matices de la fuente, sintetiza repeticiones y no atribuyas nombres a voces anónimas. Distingue acuerdos reales de propuestas. No conviertas un ejemplo en obligación, no inventes canales de comunicación ni cambies cantidades, duraciones o plazos. No añadas listas de asistentes, frases motivacionales, planes de 30 días o evaluaciones de personas salvo petición expresa. Una transcripción literal solo procede si Araceli la solicita explícitamente.';
+
+export function isSummaryRequest(value: string): boolean {
+  const text = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /\b(resum\w*|acta|sintesis|correo|email|mail)\b/.test(text) && !/\btranscripcion\s+(literal|integra|completa)\b/.test(text);
+}
+
+export function summaryOutputIssue(value: string): string | null {
+  const clean = normalizeWritingText(value).replace(/<[^>]*>/g, ' ').replace(/[*_`]/g, '');
+  return /\b(?:orador|speaker|interlocutor)\s+(?:[a-z]|\d+)\b/i.test(clean)
+    || /(?:^|\n)\s*(?:\d{1,2}:){2}\d{2}\s+\S/m.test(clean)
+    ? 'El resultado conserva etiquetas de oradores o marcas de tiempo. Reescríbelo como síntesis por temas, conclusiones y próximos pasos, sin turnos de palabra ni asistentes deducidos.'
+    : null;
+}
+
+export function assertSummaryDraft(subject: string, body: string): void {
+  if (!isSummaryRequest(subject)) return;
+  const issue = summaryOutputIssue(body);
+  if (issue) throw new Error(`Borrador no guardado: ${issue} Usa la fuente original para mantener fieles cifras y acuerdos.`);
+}
+
 const entityNames: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', hellip: '…', euro: '€' };
 
 /** Dos pasadas toleran el doble escape sin reinterpretar HTML no confiable. */

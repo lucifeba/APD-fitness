@@ -4,6 +4,7 @@ import { forgetDocument, getDocument, ingestDocument, ingestUrl, listDocuments, 
 import { ask } from '../router';
 import { clip } from '../util';
 import { confirm, num, params, str, type ToolSpec } from './types';
+import { isSummaryRequest, SUMMARY_PREFERENCE, WRITING_PREFERENCE, summaryOutputIssue } from '../writing';
 
 const ANALYSIS_PART_CHARS = 24_000;
 const ANALYSIS_SHEET_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
@@ -128,6 +129,7 @@ export const knowledgeTools: ToolSpec[] = [
       if (!ids.length) return { error: 'Indica al menos un doc_id.' };
       const objective = String(a.objective || '').trim();
       if (!objective) return { error: 'Indica el objetivo del análisis.' };
+      const summaryMode = isSummaryRequest(objective);
       const docs: { id: string; title: string; text: string; total: number }[] = [];
       for (const id of ids) {
         const meta = await getDocument(ctx.env, id);
@@ -143,7 +145,9 @@ export const knowledgeTools: ToolSpec[] = [
           return await ask(
             ctx.env,
             'fast',
-            `Analizas fielmente una parte de una transcripción para preparar un informe ejecutivo de acompañamiento comercial. Extrae únicamente evidencias presentes y conserva nombres, farmacias, fechas, cifras, moléculas, presentaciones, unidades, canales, compromisos y pendientes. Para cada conversación identifica: objetivo previo; preparación y datos usados; apertura; preguntas; escucha; necesidad; objeciones; argumentación; propuesta; cierre; siguiente paso; responsable y fecha si constan; qué funcionó; qué limitó el avance. Distingue con etiquetas claras HECHO, INTERPRETACIÓN POSIBLE y DATO PENDIENTE. Detecta también patrones de cartera, uso del tiempo, generación de oportunidades y reacción al feedback. No inventes ni completes silenciosamente datos ausentes y no redactes todavía el informe final. Devuelve notas estructuradas, compactas y suficientemente específicas para sostener cada conclusión.`,
+            summaryMode
+              ? `Extrae notas fieles por temas de esta parte de la reunión para la petición concreta del usuario. Conserva cifras, unidades, fechas y condiciones; separa acuerdos de propuestas y ejemplos. No atribuyas nombres a voces anónimas. No añadas asistentes, canales ni compromisos no documentados. ${SUMMARY_PREFERENCE} Todavía no redactes el correo final.`
+              : `Analizas fielmente una parte de una transcripción para preparar un informe ejecutivo de acompañamiento comercial. Extrae únicamente evidencias presentes y conserva nombres, farmacias, fechas, cifras, moléculas, presentaciones, unidades, canales, compromisos y pendientes. Para cada conversación identifica: objetivo previo; preparación y datos usados; apertura; preguntas; escucha; necesidad; objeciones; argumentación; propuesta; cierre; siguiente paso; responsable y fecha si constan; qué funcionó; qué limitó el avance. Distingue con etiquetas claras HECHO, INTERPRETACIÓN POSIBLE y DATO PENDIENTE. Detecta también patrones de cartera, uso del tiempo, generación de oportunidades y reacción al feedback. No inventes ni completes silenciosamente datos ausentes y no redactes todavía el informe final. Devuelve notas estructuradas, compactas y suficientemente específicas para sostener cada conclusión.`,
             `Objetivo final del usuario:\n${objective}\n\nDocumento: ${doc.title}\nParte ${part + 1} de ${splitForAnalysis(doc.text).length}:\n\n${text}`,
             1400,
           );
@@ -158,7 +162,9 @@ export const knowledgeTools: ToolSpec[] = [
         rendered = await ask(
           ctx.env,
           'smart',
-          `Eres un experto sénior en dirección comercial farmacéutica, estadística aplicada a ventas y desarrollo de delegados. Redacta un informe ejecutivo profundo en español de España, útil para que una gerente prepare una reunión, tome decisiones y haga seguimiento.
+          summaryMode
+            ? `Eres el secretario de Araceli. Entrega exactamente el resumen, acta o correo solicitado, en su estilo profesional y natural, con temas tratados, conclusiones y próximos pasos respaldados por la fuente. No impongas una evaluación de acompañamientos ni formularios. ${SUMMARY_PREFERENCE} ${WRITING_PREFERENCE}`
+            : `Eres un experto sénior en dirección comercial farmacéutica, estadística aplicada a ventas y desarrollo de delegados. Redacta un informe ejecutivo profundo en español de España, útil para que una gerente prepare una reunión, tome decisiones y haga seguimiento.
 
 ESTÁNDAR OBLIGATORIO:
 1. Abre con una conclusión ejecutiva clara: qué está ocurriendo, qué impacto tiene y cuál es la prioridad.
@@ -178,9 +184,14 @@ Escribe con criterio, precisión y suficiente profundidad, sin relleno. Las reco
         );
       } catch (error) {
         console.warn('knowledge analyze synthesis', error instanceof Error ? error.message : String(error));
+        if (summaryMode) return { error: 'No se ha podido completar la síntesis de la reunión. Los documentos se conservan. No entregues las notas internas ni turnos de oradores como si fueran el resumen final.' };
         rendered = `## Análisis recuperado\n\nNo se ha podido completar la síntesis final, pero estas son las evidencias extraídas sin perder los documentos:\n\n${notes.join('\n\n')}`;
       }
       rendered = rendered.trim();
+      if (summaryMode && summaryOutputIssue(rendered)) {
+        rendered = await ask(ctx.env, 'smart', `${SUMMARY_PREFERENCE} Reescribe solo con los hechos contenidos en el texto, sin añadir datos.`, rendered, 3200);
+        if (summaryOutputIssue(rendered)) return { error: 'La síntesis no ha pasado la comprobación: aún contiene etiquetas de oradores. No se ha guardado ni enviado como resultado final.' };
+      }
       let googleDoc: { id: string; url: string; title: string } | undefined;
       if (String(a.google_doc_title || '').trim()) {
         const title = String(a.google_doc_title).trim();

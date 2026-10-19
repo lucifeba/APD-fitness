@@ -2,7 +2,7 @@ import type { Env } from './env';
 import { getSetting, setSetting } from './db';
 import { extractText } from './knowledge';
 import { base64UrlDecode, base64UrlEncode, calendarBoundary, calendarSpan, fetchWithTimeout, htmlToText, type CalendarBoundary } from './util';
-import { renderWriting } from './writing';
+import { assertSummaryDraft, renderWriting } from './writing';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
@@ -171,6 +171,7 @@ export function buildRaw(env: Env, to: string, subject: string, body: string, op
 }
 
 export async function gmailDraft(env: Env, to: string, subject: string, body: string, threadId?: string, replyToId?: string): Promise<{ id: string; url: string }> {
+  assertSummaryDraft(subject, body);
   let inReplyTo: string | undefined;
   if (replyToId) {
     const orig = await gmailRead(env, replyToId);
