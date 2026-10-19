@@ -13,6 +13,9 @@ export interface Env {
   PUBLIC_URL?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  /** Cliente humano del dashboard, separado del cliente del agente. */
+  GOOGLE_WEB_CLIENT_ID?: string;
+  GOOGLE_WEB_CLIENT_SECRET?: string;
   GOOGLE_REFRESH_TOKEN?: string;
   GEMINI_API_KEY?: string;
   GROQ_API_KEY?: string;

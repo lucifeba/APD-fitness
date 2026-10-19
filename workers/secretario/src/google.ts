@@ -12,6 +12,15 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/tasks',
 ];
 
+/** Migración sin cortar el bot: su cliente y refresh token no se modifican. */
+export function webOAuthCredentials(env: Env): { clientId: string; clientSecret: string; separated: boolean } {
+  const webId = env.GOOGLE_WEB_CLIENT_ID?.trim();
+  const webSecret = env.GOOGLE_WEB_CLIENT_SECRET?.trim();
+  if (Boolean(webId) !== Boolean(webSecret)) throw new Error('Falta completar el ID o el secreto del cliente Google del dashboard.');
+  if (webId && webId === env.GOOGLE_CLIENT_ID?.trim()) throw new Error('El cliente Google del dashboard debe ser distinto del cliente del agente.');
+  return { clientId: webId || env.GOOGLE_CLIENT_ID || '', clientSecret: webSecret || env.GOOGLE_CLIENT_SECRET || '', separated: Boolean(webId && webSecret) };
+}
+
 let cached: { token: string; exp: number } | null = null;
 
 async function refreshToken(env: Env): Promise<string> {

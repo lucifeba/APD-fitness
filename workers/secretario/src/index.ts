@@ -360,6 +360,8 @@ o, si de verdad necesitas aclaraciones:
           service: env.BOT_NAME || 'Secretario',
           time: new Date().toISOString(),
           capabilities: {
+            webOAuthIsolationSupported: true,
+            oauthClientsSeparated: Boolean(env.GOOGLE_WEB_CLIENT_ID && env.GOOGLE_WEB_CLIENT_SECRET && env.GOOGLE_WEB_CLIENT_ID !== env.GOOGLE_CLIENT_ID),
             writingFormat: '2026-10-19-v2-summary',
             writingPreferenceStored: database.status === 'fulfilled' && Boolean(database.value?.writingPreference),
             meetingSummaryPreferenceStored: database.status === 'fulfilled' && Boolean(database.value?.summaryPreference),

@@ -1,6 +1,6 @@
 import { getSetting } from "./db";
 import type { Env } from "./env";
-import { googleConfigured } from "./google";
+import { googleConfigured, webOAuthCredentials } from "./google";
 import { countDocuments, listDocuments } from "./knowledge";
 import { countMemories } from "./memory";
 import { chatgptConnected, VERIFICATION_URL } from "./chatgpt";
@@ -88,8 +88,11 @@ const cookieHeader = (value: string, maxAge: number) =>
 // ---------- OAuth de Google para entrar (solo identidad) ----------
 
 export function loginRedirect(env: Env, state: string): Response {
+  let credentials;
+  try { credentials = webOAuthCredentials(env); }
+  catch { return page(env, errorCard('La configuración de acceso web de Google está incompleta. La conexión del bot sigue independiente.'), 503); }
   const p = new URLSearchParams({
-    client_id: env.GOOGLE_CLIENT_ID || "",
+    client_id: credentials.clientId,
     redirect_uri: `${env.PUBLIC_URL}/auth/google/callback`,
     response_type: "code",
     scope: "openid email profile",
@@ -121,13 +124,16 @@ export async function loginCallback(req: Request, env: Env): Promise<Response> {
       ),
       400,
     );
+  let credentials;
+  try { credentials = webOAuthCredentials(env); }
+  catch { return page(env, errorCard('La configuración de acceso web de Google está incompleta.'), 503); }
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: env.GOOGLE_CLIENT_ID || "",
-      client_secret: env.GOOGLE_CLIENT_SECRET || "",
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
       redirect_uri: `${env.PUBLIC_URL}/auth/google/callback`,
       grant_type: "authorization_code",
     }),
