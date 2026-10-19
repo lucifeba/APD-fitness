@@ -194,9 +194,9 @@ export const googleTools: ToolSpec[] = [
   {
     def: {
       name: 'gmail_draft',
-      description: 'Crea un borrador en Gmail (no envía nada). Úsalo para preparar respuestas que el usuario revisará.',
+      description: 'Crea y verifica un borrador completo en Gmail (no envía nada). El formato se convierte a negrita/cursiva reales y texto limpio. ReforVit se escribe con V. No inventes destinatarios ni contenido: usa las fuentes de la petición.',
       parameters: params(
-        { to: str('Destinatario.'), subject: str('Asunto.'), body: str('Cuerpo en texto plano.'), reply_to_id: str('Opcional: id del correo al que responde.') },
+        { to: str('Destinatario, o vacío si aún no se ha indicado.'), subject: str('Asunto.'), body: str('Correo completo con párrafos. Se permite negrita y cursiva sencillas; sin tablas, escapes ni código.'), reply_to_id: str('Opcional: id del correo al que responde.') },
         ['to', 'subject', 'body'],
       ),
     },

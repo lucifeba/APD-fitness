@@ -10,6 +10,7 @@ import type { ToolCtx } from './tools/types';
 import { addDays, clip, localParts, localTime, safeJson, uid, weekdayOf } from './util';
 import { hasInternalToolTrace, stripInternalToolTrace } from './chatMessages';
 import { configurationKnowledge } from './configKnowledge';
+import { WRITING_PREFERENCE } from './writing';
 
 const DEFAULT_TRANSCRIPTIONS_FOLDER_ID = '1rJyl0Mo-vNhRDIJpnSqWxDE2doI-Zm5N';
 const ANALYSIS_DATABASE_ID = '1pZmmMvQgQPYC_hFIvjwt4Tsvqf0aKMmdnxz_lKkB2vo';
@@ -67,6 +68,7 @@ export async function systemPrompt(env: Env, opts: { chatId: string; tz: string;
   const nowParts = localParts(opts.tz);
   const parts = [
     `Eres ${name}, el asistente personal y secretario de ${owner} (${env.OWNER_EMAIL || ''}). Trabajas por Telegram y hablas siempre en español de España, de tú, directo y sin relleno.`,
+    `# Preferencia permanente de redacción (Telegram, correo y documentos)\n${WRITING_PREFERENCE}`,
     `# Fecha y hora (fiables, úsalas tal cual)
 - Ahora: ${localTime(opts.tz)} (${opts.tz}, desfase ${nowParts.offset}). En UTC: ${new Date().toISOString()}.
 - Hoy: ${nowParts.date} (${nowParts.weekday}). Mañana: ${addDays(nowParts.date, 1)} (${weekdayOf(addDays(nowParts.date, 1))}). Pasado mañana: ${addDays(nowParts.date, 2)}.

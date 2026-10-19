@@ -9,7 +9,18 @@ const js = ts
   .outputText.replace(/^import .*;$/gm, '')
   .replace(/export /g, '');
 const base64UrlEncode = (value) => Buffer.from(value, 'utf8').toString('base64url');
-const { buildRaw } = new Function('base64UrlEncode', `${js};return {buildRaw}`)(base64UrlEncode);
+const writingJs = ts.transpileModule(readFileSync(new URL('../src/writing.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022 } }).outputText.replace(/export /g, '');
+const { renderWriting } = new Function(`${writingJs};return {renderWriting}`)();
+const { buildRaw } = new Function('base64UrlEncode', 'renderWriting', `${js};return {buildRaw}`)(base64UrlEncode, renderWriting);
+
+function partsOf(raw) {
+  const mime = Buffer.from(raw, 'base64url').toString('utf8');
+  const boundary = mime.match(/boundary="([^"]+)"/)[1];
+  return mime.split('--' + boundary).slice(1, -1).map(part => {
+    const [headers, ...body] = part.trim().split('\r\n\r\n');
+    return { headers, content: Buffer.from(body.join('\r\n\r\n'), 'base64').toString('utf8') };
+  });
+}
 
 test('Gmail draft MIME preserves the required header/body separator and UTF-8 body', () => {
   const expected = 'Hola María,\n\nTe envío la propuesta completa.\n\nUn abrazo,\nAraceli';
@@ -23,7 +34,29 @@ test('Gmail draft MIME preserves the required header/body separator and UTF-8 bo
   const [headers, encodedBody] = mime.split('\r\n\r\n');
 
   assert.match(headers, /^From: Araceli Delgado <aradelg@gmail.com>/);
-  assert.match(headers, /Content-Type: text\/plain; charset="UTF-8"/);
+  assert.match(headers, /Content-Type: multipart\/alternative/);
   assert.ok(encodedBody, 'el cuerpo debe quedar separado de las cabeceras');
-  assert.equal(Buffer.from(encodedBody, 'base64').toString('utf8'), expected);
+  const parts = partsOf(raw);
+  assert.equal(parts[0].content, expected);
+  assert.match(parts[0].headers, /text\/plain; charset="UTF-8"/);
+  assert.match(parts[1].content, /Hola María/);
+});
+
+test('el borrador guarda negritas y cursivas reales y una alternativa de texto limpia', () => {
+  const raw = buildRaw({ OWNER_EMAIL: 'aradelg@gmail.com' }, '', 'Acta ReforBit', String.raw`\*\*Conclusión ejecutiva\*\*
+
+ReforBit crece +&#x37;1 %. *Pendiente de validar*.
+\---`);
+  const [plain, html] = partsOf(raw);
+  assert.equal(plain.content, 'Conclusión ejecutiva\n\nReforVit crece +71 %. Pendiente de validar.');
+  assert.match(html.content, /<strong>Conclusión ejecutiva<\/strong>/);
+  assert.match(html.content, /<em>Pendiente de validar<\/em>/);
+  assert.doesNotMatch(plain.content + html.content, /\\|&#|ReforBit|\*\*/);
+});
+
+test('el formato de correo escapa HTML arbitrario y no pierde euros ni acentos', () => {
+  const formatted = renderWriting('<script>alert(1)</script>\n\nMálaga: 4 M € y +71 %.');
+  assert.doesNotMatch(formatted.html, /<script>/);
+  assert.match(formatted.html, /&lt;script&gt;/);
+  assert.match(formatted.text, /Málaga: 4 M € y \+71 %/);
 });

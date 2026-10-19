@@ -2,6 +2,7 @@ import type { Env } from './env';
 import { getSetting, setSetting } from './db';
 import { extractText } from './knowledge';
 import { base64UrlDecode, base64UrlEncode, calendarBoundary, calendarSpan, fetchWithTimeout, htmlToText, type CalendarBoundary } from './util';
+import { renderWriting } from './writing';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
@@ -147,7 +148,10 @@ export async function gmailRead(env: Env, id: string): Promise<MailSummary & { b
 }
 
 export function buildRaw(env: Env, to: string, subject: string, body: string, opts: { cc?: string; inReplyTo?: string; references?: string } = {}): string {
-  const encSubject = `=?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`;
+  const cleanSubject = renderWriting(subject).text.replace(/[\r\n]+/g, ' ');
+  const encSubject = `=?UTF-8?B?${btoa(unescape(encodeURIComponent(cleanSubject)))}?=`;
+  const formatted = renderWriting(body);
+  const boundary = `aravitas_${crypto.randomUUID().replace(/-/g, '')}`;
   const headers = [
     `From: ${env.OWNER_NAME || ''} <${env.OWNER_EMAIL}>`,
     `To: ${to}`,
@@ -156,13 +160,13 @@ export function buildRaw(env: Env, to: string, subject: string, body: string, op
     opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : '',
     opts.references ? `References: ${opts.references}` : '',
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].filter((l) => l !== '');
   // La línea vacía entre las cabeceras y el contenido es obligatoria en MIME.
   // Si se elimina, Gmail acepta el borrador y muestra el asunto, pero interpreta
   // el contenido codificado como una cabecera desconocida y deja el cuerpo vacío.
-  const message = `${headers.join('\r\n')}\r\n\r\n${btoa(unescape(encodeURIComponent(body)))}`;
+  const encodePart = (mime: string, content: string) => `--${boundary}\r\nContent-Type: ${mime}; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${btoa(unescape(encodeURIComponent(content))).match(/.{1,76}/g)?.join('\r\n') || ''}`;
+  const message = `${headers.join('\r\n')}\r\n\r\n${encodePart('text/plain', formatted.text)}\r\n${encodePart('text/html', formatted.html)}\r\n--${boundary}--\r\n`;
   return base64UrlEncode(message);
 }
 
@@ -187,6 +191,10 @@ export async function gmailDraft(env: Env, to: string, subject: string, body: st
   if (body.trim() && !savedBody) {
     await gapi(env, `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(d.id)}`, { method: 'DELETE' }).catch(() => undefined);
     throw new Error('Gmail no conservó el cuerpo del correo. El borrador incompleto se descartó; inténtalo de nuevo.');
+  }
+  const expectedBody = renderWriting(body).text.replace(/\s+/g, ' ').trim();
+  if (expectedBody !== savedBody.replace(/\s+/g, ' ').trim()) {
+    throw new Error('El contenido guardado en Gmail no coincide con el correo preparado. El borrador se ha conservado para revisarlo, pero no se confirma como completo.');
   }
   return { id: d.id, url: `https://mail.google.com/mail/u/0/#drafts?compose=${saved.message?.id ?? d.message?.id ?? ''}` };
 }

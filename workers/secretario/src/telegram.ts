@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { fetchWithTimeout } from './util';
+import { normalizeWritingText, readableWriting } from './writing';
 
 type Json = Record<string, unknown>;
 
@@ -75,7 +76,7 @@ function plainMath(value: string): string {
 
 /** Limpia marcas que Telegram mostraría literalmente al usuario. */
 export function normalizeTelegramMarkdown(md: string): string {
-  return md
+  return normalizeWritingText(md)
     .replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => plainMath(String(formula)))
     .replace(/\$([^$\n]+)\$/g, (_match, formula) => plainMath(String(formula)))
     .replace(/\\?<br\s*\/?>/gi, '\n')
@@ -87,10 +88,7 @@ export function normalizeTelegramMarkdown(md: string): string {
 }
 
 function prepareTelegramMarkdown(md: string): string {
-  const readableTables = md.replace(/(?:^|\n)((?:[ \t]*\|[^\n]*\|[ \t]*(?:\n|$)){2,})/g, (match, table) =>
-    match.replace(table, `${tableToReadableText(table)}\n`),
-  );
-  return normalizeTelegramMarkdown(readableTables);
+  return readableWriting(normalizeTelegramMarkdown(md));
 }
 
 /** Convierte Markdown básico (lo que suelen escribir los modelos) a HTML de Telegram. */
@@ -141,7 +139,8 @@ export async function send(env: Env, chatId: string, text: string, opts: SendOpt
   if (!text?.trim()) return undefined;
   let lastId: number | undefined;
   // Las etiquetas HTML alargan el texto (**x** → <b>x</b>), así que troceamos con margen para no pasar de 4096.
-  const parts = chunk(text, opts.plain ? 3900 : 2900);
+  const cleanText = opts.plain ? stripMd(text) : prepareTelegramMarkdown(text);
+  const parts = chunk(cleanText, opts.plain ? 3900 : 2900);
   for (let i = 0; i < parts.length; i++) {
     const last = i === parts.length - 1;
     const body: Json = { chat_id: chatId, text: opts.plain ? parts[i] : mdToHtml(parts[i]), disable_web_page_preview: true };
