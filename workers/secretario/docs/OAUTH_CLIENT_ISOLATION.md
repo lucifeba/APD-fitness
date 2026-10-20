@@ -1,16 +1,27 @@
 # Separación OAuth de Aravitas
 
-Revisión: 19 de octubre de 2026. Proyecto Google Cloud `secretaria-ara`.
+Revisión: 20 de octubre de 2026. Proyecto Google Cloud `secretaria-ara`.
 
 ## Estado comprobado
 
-- Cliente existente: `Nuvia Telegram`. Comparte los retornos `/oauth/callback`
-  (agente) y `/auth/google/callback` (acceso humano al panel).
+- Migración completada. El cliente existente, antes `Nuvia Telegram`, se llama
+  `Aravitas - agente Telegram`, tiene activada la clasificación agéntica y solo
+  conserva `https://ara.nuviamedia.com/oauth/callback`.
+- Cliente humano independiente: `Aravitas - acceso web`, sin clasificación
+  agéntica y con único retorno `https://ara.nuviamedia.com/auth/google/callback`.
+- La propietaria guardó el par `GOOGLE_WEB_CLIENT_ID` y
+  `GOOGLE_WEB_CLIENT_SECRET` como secretos del Worker `secretario-ara`.
 - El agente llama a REST de Gmail, Drive, Docs, Sheets, Calendar y Tasks; no
   llama a servidores MCP de Google Workspace.
-- La clasificación `Use this client for an AI-powered agent` estaba desactivada.
-- Se ha preparado soporte para un cliente web independiente. No implica que
-  las credenciales nuevas estén creadas, configuradas o activadas.
+- Verificado un nuevo inicio de sesión completo con el cliente humano, usando
+  exclusivamente `openid email profile` y la cuenta propietaria autorizada.
+- Verificada una lectura real de eventos de octubre mediante la vista
+  Planificación y las credenciales del agente, después del cambio.
+- Verificada la casilla agéntica persistida al reabrir el cliente de Google Cloud.
+- `/health`: `ok: true`, `capabilities.oauthClientsSeparated: true`, todos los
+  checks positivos, `telegramPending: 0` y `queue.failed: 0`.
+- Se conservan el ID, secreto y refresh token del agente; no se han añadido
+  scopes ni se han activado servidores MCP.
 
 ## Migración sin sustituir el refresh token del agente
 
