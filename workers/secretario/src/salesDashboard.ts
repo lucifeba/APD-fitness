@@ -2,6 +2,7 @@ import { strFromU8, Unzip, UnzipInflate } from "fflate";
 import type { Env } from "./env";
 import { getSetting } from "./db";
 import { send } from "./telegram";
+import { SALES_SCHEMA_VERSION, SALES_PERIOD_VERSION, salesKey, quarterName, quarterOrder, quarterForMonth, latestQuarter, periodColumns, readPeriodSeries, mergeQuarterHistory, mergeProductHistory, recoverShiftedClient, recoverShiftedDelegate, recoverMonthlySales } from './salesPeriods';
 
 type Cell = string | number | boolean | null;
 type Row = Record<string, Cell>;
@@ -27,6 +28,9 @@ export interface DashboardPayload {
     clientCount: number;
     productCount: number;
     recoveryMatchCount: number;
+    currentQuarter: string;
+    productMonths: string[];
+    schemaVersion: number;
   };
   quota: any[];
   cycles: any[];
@@ -551,11 +555,16 @@ export function parseSalesDashboard(
     recovery.set(vdl, { total: number(row.S), months, quarters });
   }
   const headerRow = main.get(10) || {},
-    monthCols = colRange("W", "AZ").filter((c) => Number(headerRow[c]) > 0),
-    totalCols = colRange("BZ", "CI"),
-    platformCols = colRange("CJ", "CS"),
-    pushCols = colRange("CT", "DC"),
-    quarterLabels = totalCols.map((c, i) => quarterLabel(headerRow[c], i)),
+    mainGroups = main.get(9) || {},
+    monthCols = Object.keys(headerRow).filter(c => Number(headerRow[c]) >= 36526 && Number(headerRow[c]) <= 73050),
+    totalPeriods = periodColumns(headerRow, mainGroups, 'VENTA TOTAL'),
+    platformPeriods = periodColumns(headerRow, mainGroups, 'V. PLATAFORMA CICLO'),
+    pushPeriods = periodColumns(headerRow, mainGroups, 'V. PUSH CICLO'),
+    currentQuarter = totalPeriods.find(p=>p.current)?.quarter || latestQuarter(totalPeriods),
+    periodProgress = currentQuarter === quarterForMonth(sourceDate) ? progress : 1,
+    otcStart = Object.entries(mainGroups).find(([,v])=>salesKey(v)==='seguimiento otc')?.[0],
+    otcCols = otcStart ? colRange(otcStart, colLetters(colNumber(totalPeriods[0].column)-1)) : [],
+    mainValue = (row:Row,...names:string[]) => fromHeader(row,headers,...names),
     seen = new Set<string>();
   for (let i = 11; i <= 1500; i++) {
     const row = main.get(i) || {},
@@ -566,32 +575,25 @@ export function parseSalesDashboard(
     seen.add(vdl);
     const previous = number(row.T),
       current = number(row.U),
-      objective = number(row.BB),
+      objective = number(mainValue(row,'OBJETIVO VENTA MENSUAL')),
       classification = clean(row.H) || "Sin clasificar",
-      quarters = quarterSeries(
-        row,
-        quarterLabels,
-        totalCols,
-        platformCols,
-        pushCols,
-        progress,
-      ),
+      quarters = readPeriodSeries(row,totalPeriods,platformPeriods,pushPeriods,periodProgress),
       monthlySales = Object.fromEntries(
         monthCols.map((c) => [
           excelDate(headerRow[c]).slice(0, 7),
           number(row[c]),
         ]),
       ),
-      otc = colRange("BN", "BY").map((c) => ({
+      otc = otcCols.map((c) => ({
         name: clean(headerRow[c]),
         quantity: number(row[c]),
         purchased: number(row[c]) > 0,
       })),
-      commitment = nullableNumber(row.BF),
-      accumulated = nullableNumber(row.BK),
-      start = excelDate(row.BG),
-      end = excelDate(row.BH),
-      condition = clean(row.BE),
+      commitment = nullableNumber(mainValue(row,'Compromiso Fact Q')),
+      accumulated = nullableNumber(mainValue(row,'Acumulado Q')),
+      start = excelDate(mainValue(row,'Inicio acuerdo')),
+      end = excelDate(mainValue(row,'Fin acuerdo')),
+      condition = clean(mainValue(row,'COND. COMERCIAL')),
       agreementActive = Boolean(condition || commitment || start || end),
       remaining =
         commitment === null
@@ -605,9 +607,9 @@ export function parseSalesDashboard(
         remaining,
         start,
         end,
-        vigency: clean(row.BI),
-        service: clean(row.BJ),
-        grossAccumulated: nullableNumber(row.BL),
+        vigency: clean(mainValue(row,'Vigencia')),
+        service: clean(mainValue(row,'SERVICIO')),
+        grossAccumulated: nullableNumber(mainValue(row,'Fact Bruta Acum Acdo')),
         averageDiscount: nullableNumber(row.Q),
       },
       recoveryData = recovery.get(vdl) || {
@@ -624,10 +626,10 @@ export function parseSalesDashboard(
       otc,
       purchasePattern: purchasePattern(
         quarters.map((q) => q.total),
-        progress,
+        periodProgress,
       ),
       directPct: quarters.at(-1)?.directPct ?? null,
-      forecastGap: number(row.BC),
+      forecastGap: number(mainValue(row,'FALTA PREV.')),
     });
     clients.push({
       vdl,
@@ -645,11 +647,11 @@ export function parseSalesDashboard(
       coverage: objective ? current / objective : null,
       sow: nullableNumber(row.L),
       acuteShare: nullableNumber(row.N),
-      province: clean(row.EF),
-      city: clean(row.EG),
-      postalCode: clean(row.EH),
-      region: clean(row.EI),
-      route: clean(row.EJ),
+      province: clean(mainValue(row,'Provincia')),
+      city: clean(mainValue(row,'Ciudad')),
+      postalCode: clean(mainValue(row,'CP')),
+      region: clean(mainValue(row,'CCAA')),
+      route: clean(mainValue(row,'RUTA')),
       unitsTotal: recoveryData.total,
       priority: priority(classification, current, previous),
     });
@@ -685,14 +687,17 @@ export function parseSalesDashboard(
       }
     }
   }
-  const quotaRows = sheet("Cuota", 7, 30),
+  const quotaRows = sheet("Cuota", 6, 60),
+    quotaHeader = [...quotaRows.values()].find(row=>salesKey(row.C)==='coddel') || {},
+    quotaMonths = ['F','G','H'].map(c=>excelDate(quotaHeader[c]).slice(0,7)),
+    quotaQuarter = quarterForMonth(quotaMonths[0] || ''),
     client200Targets = new Map(
       [...quotaRows.entries()]
-        .filter(([idx, row]) => idx >= 15 && idx <= 19 && clean(row.D))
+        .filter(([, row]) => clean(row.D) && !clean(row.C) && Number(row.F)>0 && Number(row.E)>0)
         .map(([, row]) => [normalize(clean(row.D)), { target85: number(row.E), target100: number(row.F) }]),
     ),
     quota = [...quotaRows.values()]
-      .filter((r) => clean(r.C))
+      .filter((r) => /^BU\s*\d+/i.test(clean(r.C)))
       .map((r) => ({
         codDel: clean(r.C),
         delegate: clean(r.D),
@@ -706,31 +711,38 @@ export function parseSalesDashboard(
         coverageQ: number(r.O),
         gapQ: number(r.P),
       })),
-    cycleRows = sheet("Ciclos Cerrados", 7, 30),
+    cycleRows = sheet("Ciclos Cerrados", 6, 60),
     cycleHeader = cycleRows.get(7) || {},
+    cycleGroups = cycleRows.get(6) || {},
+    cycleTotal = periodColumns(cycleHeader,cycleGroups,'VENTA TOTAL'),
+    cyclePlatform = periodColumns(cycleHeader,cycleGroups,'V. PLATAFORMA CICLO'),
+    cyclePush = periodColumns(cycleHeader,cycleGroups,'V. PUSH CICLO'),
+    cycle200 = periodColumns(cycleHeader,cycleGroups,'Farmacias Cumplen > 200€'),
+    cycleOrders = periodColumns(cycleHeader,cycleGroups,'Pedidos Directos'),
+    cycleTransfers = periodColumns(cycleHeader,cycleGroups,'Pedidos Transfer'),
+    cycleRatio = periodColumns(cycleHeader,cycleGroups,'% Directo sobre Transfer ( ni incluye P Negativas)'),
+    cycleOpenings = periodColumns(cycleHeader,cycleGroups,'Aperturas Venta Push'),
+    cycleOpeningSales = periodColumns(cycleHeader,cycleGroups,'VRN PUSH Aperturas'),
+    cycleOpeningMean = periodColumns(cycleHeader,cycleGroups,'VRN PROMEDIO Aperturas'),
+    cycleHeaders = headerMap(cycleHeader),
     cycles: any[] = [],
     delegates: any[] = [];
+  if(latestQuarter(cycleTotal)!==currentQuarter || (quotaQuarter && quotaQuarter!==currentQuarter))
+    throw new Error('Cuota, Cuadro Mando y Ciclos Cerrados no corresponden al mismo trimestre. No se sustituirá el cuadro vigente.');
+  const periodValue=(row:Row,cols:ReturnType<typeof periodColumns>,quarter:string)=>number(row[cols.find(x=>x.quarter===quarter)?.column||'']);
   for (const [idx, row] of cycleRows) {
-    if (idx === 7 || !clean(row.C)) continue;
-    const labels = colRange("E", "J").map((c, i) =>
-        quarterLabel(cycleHeader[c], i),
-      ),
-      series = quarterSeries(
-        row,
-        labels,
-        colRange("E", "J"),
-        colRange("K", "P"),
-        colRange("Q", "V"),
-        progress,
-      ),
+    if (idx === 7 || !/^BU\s*\d+/i.test(clean(row.C))) continue;
+    const series: QuarterPoint[] = readPeriodSeries(row,cycleTotal,cyclePlatform,cyclePush,periodProgress),
       codDel = clean(row.C),
       delegate = clean(row.D),
       targets = client200Targets.get(normalize(delegate)) || { target85: 0, target100: 0 };
     series.forEach((point, i) => {
-      point.pharmacies200 = number(row[colRange("W", "AB")[i]]);
-      point.openingsCount = number(row[colRange("AY", "BD")[i]]);
-      point.openingsSales = number(row[colRange("BE", "BJ")[i]]);
-      point.openingsAverage = number(row[colRange("BK", "BP")[i]]);
+      point.pharmacies200 = periodValue(row,cycle200,point.quarter);
+      point.openingsCount = periodValue(row,cycleOpenings,point.quarter);
+      point.openingsSales = periodValue(row,cycleOpeningSales,point.quarter);
+      point.openingsAverage = periodValue(row,cycleOpeningMean,point.quarter);
+      if(!Number.isInteger(point.openingsCount)||point.openingsCount<0 || !Number.isInteger(point.pharmacies200)||point.pharmacies200<0)
+        throw new Error(`Los contadores de farmacias no son válidos en ${point.quarter}.`);
       if (i === series.length - 1) {
         point.target200At85 = targets.target85;
         point.target200At100 = targets.target100;
@@ -739,18 +751,18 @@ export function parseSalesDashboard(
     cycles.push({
       codDel,
       delegate,
-      previousQ: number(row.I),
-      currentQ: number(row.J),
-      platform: number(row.P),
-      push: number(row.V),
-      pharmacies200: number(row.AB),
-      directOrders: number(row.AH),
-      transferOrders: number(row.AN),
-      directRatio: number(row.AT),
-      clientsGrowing: number(row.AU),
-      clientsDeclining: number(row.AV),
-      eurosGrowing: number(row.AW),
-      eurosDeclining: number(row.AX),
+      previousQ: series.at(-2)?.total||0,
+      currentQ: series.at(-1)?.total||0,
+      platform: series.at(-1)?.platform||0,
+      push: series.at(-1)?.push||0,
+      pharmacies200: series.at(-1)?.pharmacies200||0,
+      directOrders: periodValue(row,cycleOrders,currentQuarter),
+      transferOrders: periodValue(row,cycleTransfers,currentQuarter),
+      directRatio: periodValue(row,cycleRatio,currentQuarter),
+      clientsGrowing: number(fromHeader(row,cycleHeaders,'Nº Crecen')),
+      clientsDeclining: number(fromHeader(row,cycleHeaders,'Nº Decrecen')),
+      eurosGrowing: number(fromHeader(row,cycleHeaders,'€ Crecen')),
+      eurosDeclining: number(fromHeader(row,cycleHeaders,'€ Decrecen')),
     });
     delegates.push({
       codDel,
@@ -788,7 +800,10 @@ export function parseSalesDashboard(
       ? String(2000 + Number(m[2])) + String(month).padStart(2, "0")
       : "";
   };
-  for (const c of colRange("G", "N")) {
+  const productMonthCols=Object.keys(productHeader).filter(c=>Boolean(productMonth(clean(productHeader[c])))),
+    productQuarterCols=Object.keys(productHeader).filter(c=>/^Q[1-4]$/i.test(clean(productHeader[c]))),
+    productTotalCol=Object.keys(productHeader).find(c=>salesKey(productHeader[c])==='total');
+  for (const c of productMonthCols) {
     const ym = productMonth(clean(productHeader[c]));
     if (ym > latestMonth) latestMonth = ym;
   }
@@ -798,7 +813,7 @@ export function parseSalesDashboard(
       presentation = clean(row.B),
       brand = clean(row.C),
       months: Record<string, number> = {};
-    for (const c of colRange("G", "N")) {
+    for (const c of productMonthCols) {
       const ym = productMonth(clean(productHeader[c]));
       if (ym) months[ym] = number(row[c]);
     }
@@ -809,21 +824,16 @@ export function parseSalesDashboard(
       brand,
       commercialType: clean(row.D),
       focus: clean(row.F),
-      unitsCurrent: number(row.R),
-      unitsQ1: number(row.Q),
+      unitsCurrent: trend.currentUnits,
+      unitsQ1: trend.previousUnits,
       trendPct: trend.changePct,
     });
     productDetails.push({
       nationalCode,
       months,
-      quarters: {
-        Q3: number(row.O),
-        Q4: number(row.P),
-        Q1: number(row.Q),
-        Q2: number(row.R),
-      },
+      quarters: Object.fromEntries(productQuarterCols.map(c=>[clean(productHeader[c]),number(row[c])])),
       ...trend,
-      total: number(row.S),
+      total: number(row[productTotalCol||'']),
     });
     productNames.set(nationalCode, { presentation, brand });
   }
@@ -850,8 +860,11 @@ export function parseSalesDashboard(
       clientCount: clients.length,
       productCount: products.length,
       recoveryMatchCount,
+      currentQuarter,
+      productMonths: productMonthCols.map(c=>productMonth(clean(productHeader[c]))),
+      schemaVersion: SALES_SCHEMA_VERSION,
     },
-    quota: reconcileQuotaWithOfficialCycles(quota, delegates),
+    quota: reconcileQuotaWithOfficialCycles(quota, delegates, currentQuarter, sourceDate),
     cycles,
     delegates,
     clients,
@@ -877,6 +890,7 @@ const bindMany = async (env: Env, statements: D1PreparedStatement[]) => {
     "product_details",
     "client_products",
     "alerts",
+    "sources",
   ];
 export async function importSalesDashboard(
   env: Env,
@@ -889,7 +903,7 @@ export async function importSalesDashboard(
     id = `${payload.metadata.sourceDate}-${crypto.randomUUID()}`,
     stamp = new Date().toISOString();
   await env.DB.prepare(
-    "INSERT INTO sales_dashboard_imports(id,source_name,source_date,source_channel,imported_at,imported_by,client_count,product_count,recovery_match_count) VALUES(?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO sales_dashboard_imports(id,source_name,source_date,source_channel,imported_at,imported_by,client_count,product_count,recovery_match_count,current_quarter,parser_version,product_months,ready) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0)",
   )
     .bind(
       id,
@@ -901,9 +915,15 @@ export async function importSalesDashboard(
       payload.metadata.clientCount,
       payload.metadata.productCount,
       payload.metadata.recoveryMatchCount,
+      payload.metadata.currentQuarter,
+      SALES_SCHEMA_VERSION,
+      JSON.stringify(payload.metadata.productMonths),
     )
     .run();
   try {
+    const sourceBytes=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);
+    for(let offset=0;offset<sourceBytes.length;offset+=256*1024)
+      await env.DB.prepare('INSERT INTO sales_dashboard_sources(import_id,chunk_index,content) VALUES(?,?,?)').bind(id,offset/(256*1024),sourceBytes.slice(offset,offset+256*1024).buffer).run();
     await bindMany(
       env,
       payload.quota.map((x) =>
@@ -1089,21 +1109,8 @@ export async function importSalesDashboard(
       .run();
     throw e;
   }
-  const old = await env.DB.prepare(
-    "SELECT id FROM sales_dashboard_imports ORDER BY source_date DESC,imported_at DESC LIMIT -1 OFFSET 16",
-  ).all<{ id: string }>();
-  for (const item of old.results) {
-    await env.DB.batch(
-      TABLES.map((t) =>
-        env.DB.prepare(
-          `DELETE FROM sales_dashboard_${t} WHERE import_id=?`,
-        ).bind(item.id),
-      ),
-    );
-    await env.DB.prepare("DELETE FROM sales_dashboard_imports WHERE id=?")
-      .bind(item.id)
-      .run();
-  }
+  // Keep earlier periods. Never delete history when uploading a newer Q.
+  await env.DB.prepare('UPDATE sales_dashboard_imports SET ready=1 WHERE id=?').bind(id).run();
   const result = {
     id,
     ...payload.metadata,
@@ -1139,6 +1146,8 @@ function parseJson<T>(value: unknown, fallback: T): T {
 export function reconcileQuotaWithOfficialCycles(
   quotaRows: any[],
   delegateRows: any[],
+  currentQuarter?: string,
+  sourceDate?: string,
 ) {
   const officialByDelegate = new Map<string, number>();
   for (const detail of delegateRows || []) {
@@ -1146,7 +1155,7 @@ export function reconcileQuotaWithOfficialCycles(
     const quarters = Array.isArray(detail.quarters)
       ? detail.quarters
       : parseJson<any[]>(detail.quarters_json, []);
-    const latest = quarters.at(-1);
+    const latest = currentQuarter ? quarters.find((q:any)=>q.quarter===currentQuarter) : quarters.at(-1);
     const total = Number(latest?.total);
     if (codDel && Number.isFinite(total)) officialByDelegate.set(codDel, total);
   }
@@ -1158,9 +1167,13 @@ export function reconcileQuotaWithOfficialCycles(
       const quota = Number(row.quota_q || 0),
         sale1 = Number(row.sale_1 || 0),
         sale2 = Number(row.sale_2 || 0);
+      const sales=[sale1,sale2,Number(row.sale_3||0)];
+      const index=sourceDate&&quarterForMonth(sourceDate)===currentQuarter?(Number(sourceDate.slice(5,7))-1)%3:2;
+      for(let i=index+1;i<3;i++)sales[i]=0;
+      sales[index]=official-sales.slice(0,index).reduce((a,b)=>a+b,0);
       return {
         ...row,
-        sale_3: official - sale1 - sale2,
+        sale_1: sales[0],sale_2:sales[1],sale_3:sales[2],
         coverage_q: quota ? official / quota : 0,
         gap_q: official - quota,
       };
@@ -1168,24 +1181,29 @@ export function reconcileQuotaWithOfficialCycles(
     const quota = Number(row.quotaQ || 0),
       sale1 = Number(row.sale1 || 0),
       sale2 = Number(row.sale2 || 0);
+    const sales=[sale1,sale2,Number(row.sale3||0)];
+    const index=sourceDate&&quarterForMonth(sourceDate)===currentQuarter?(Number(sourceDate.slice(5,7))-1)%3:2;
+    for(let i=index+1;i<3;i++)sales[i]=0;
+    sales[index]=official-sales.slice(0,index).reduce((a,b)=>a+b,0);
     return {
       ...row,
-      sale3: official - sale1 - sale2,
+      sale1:sales[0],sale2:sales[1],sale3:sales[2],
       coverageQ: quota ? official / quota : 0,
       gapQ: official - quota,
     };
   });
 }
+export async function listSalesImports(env:Env) {
+  const items=(await env.DB.prepare('SELECT * FROM sales_dashboard_imports WHERE ready=1').all<any>()).results;
+  return items.sort((a,b)=>quarterOrder(b.current_quarter||quarterForMonth(b.source_date))-quarterOrder(a.current_quarter||quarterForMonth(a.source_date))||String(b.source_date).localeCompare(String(a.source_date))||String(b.imported_at).localeCompare(String(a.imported_at)));
+}
 async function dashboardData(env: Env, url: URL) {
-  const imports = (
-      await env.DB.prepare(
-        "SELECT * FROM sales_dashboard_imports ORDER BY source_date DESC,imported_at DESC LIMIT 16",
-      ).all<any>()
-    ).results,
+  const imports = await listSalesImports(env),
     selectedId = url.searchParams.get("import") || imports[0]?.id;
   if (!selectedId) return { ok: true, empty: true };
   const latest = imports.find((x) => x.id === selectedId) || imports[0],
     id = latest.id,
+    currentQuarter = latest.current_quarter || quarterForMonth(latest.source_date),
     delegate = url.searchParams.get("delegate") || "",
     client = url.searchParams.get("client") || "",
     molecule = url.searchParams.get("molecule") || "",
@@ -1209,6 +1227,9 @@ async function dashboardData(env: Env, url: URL) {
     moleculeRows,
     productTimelineRows,
     patternRows,
+    allClientRows,
+    historicalDelegates,
+    historicalProducts,
   ] = await Promise.all([
     env.DB.prepare(
       `SELECT * FROM sales_dashboard_quota WHERE import_id=?${filter} ORDER BY coverage_q DESC`,
@@ -1275,7 +1296,12 @@ async function dashboardData(env: Env, url: URL) {
     )
       .bind(...args)
       .all<any>(),
+    env.DB.prepare(`SELECT c.*,d.quarters_json,d.monthly_sales FROM sales_dashboard_clients c JOIN sales_dashboard_client_details d ON d.import_id=c.import_id AND d.vdl=c.vdl WHERE c.import_id=?${filter}`).bind(...args).all<any>(),
+    env.DB.prepare(`SELECT d.*,i.source_date,i.imported_at,i.parser_version FROM sales_dashboard_delegate_details d JOIN sales_dashboard_imports i ON i.id=d.import_id WHERE i.ready=1 AND (i.source_date<? OR (i.source_date=? AND i.imported_at<?))${delegate?' AND d.cod_del=?':''} ORDER BY i.source_date,i.imported_at`).bind(latest.source_date,latest.source_date,latest.imported_at,...(delegate?[delegate]:[])).all<any>(),
+    client ? env.DB.prepare(`SELECT p.import_id,p.products_json,i.product_months FROM sales_dashboard_client_products p JOIN sales_dashboard_imports i ON i.id=p.import_id WHERE i.ready=1 AND p.vdl=? AND (i.source_date<? OR (i.source_date=? AND i.imported_at<?)) ORDER BY i.source_date,i.imported_at`).bind(client,latest.source_date,latest.source_date,latest.imported_at).all<any>()
+      : env.DB.prepare(`SELECT p.import_id,p.national_code,p.presentation,p.brand,d.months_json,i.product_months FROM sales_dashboard_products p JOIN sales_dashboard_product_details d ON d.import_id=p.import_id AND d.national_code=p.national_code JOIN sales_dashboard_imports i ON i.id=p.import_id WHERE i.ready=1 AND (i.source_date<? OR (i.source_date=? AND i.imported_at<?)) ORDER BY i.source_date,i.imported_at`).bind(latest.source_date,latest.source_date,latest.imported_at).all<any>(),
   ]);
+  const recoveredClients=allClientRows.results.map(c=>({...c,quarters:recoverShiftedClient(parseJson(c.quarters_json,[]),latest.source_date)}));
   let clientDetail: any = null,
     clientProducts: any[] = [];
   if (client) {
@@ -1285,8 +1311,8 @@ async function dashboardData(env: Env, url: URL) {
       .bind(id, client)
       .first<any>();
     if (clientDetail) {
-      clientDetail.monthlySales = parseJson(clientDetail.monthly_sales, {});
-      clientDetail.quarters = parseJson(clientDetail.quarters_json, []);
+      clientDetail.quarters = recoverShiftedClient(parseJson(clientDetail.quarters_json, []),latest.source_date);
+      clientDetail.monthlySales = recoverMonthlySales(parseJson(clientDetail.monthly_sales, {}),clientDetail.quarters,latest.source_date);
       clientDetail.recovery = parseJson(clientDetail.recovery_json, {});
       clientDetail.agreement = parseJson(clientDetail.agreement_json, {});
       clientDetail.otc = parseJson(clientDetail.otc_json, []);
@@ -1298,17 +1324,21 @@ async function dashboardData(env: Env, url: URL) {
       .first<any>();
     clientProducts = parseJson<any[]>(cp?.products_json, []);
   }
+  const needsRecovery=Number(latest.parser_version||0)<SALES_SCHEMA_VERSION&&recoveredClients.some(c=>parseJson<any[]>(c.quarters_json,[])[0]?.quarter?.startsWith('Trimestre'));
+  const sourceMonth=latest.source_date.slice(0,7).replace('-','');
+  const recoveredProductMonth=needsRecovery?(await env.DB.prepare(`SELECT json_extract(p.value,'$.nationalCode') national_code,SUM(COALESCE(json_extract(p.value,?),0)) units FROM sales_dashboard_client_products c,json_each(c.products_json) p WHERE c.import_id=? GROUP BY json_extract(p.value,'$.nationalCode')`).bind(`$.months."${sourceMonth}"`,id).all<any>()).results:[];
+  const recoveredProductUnits=new Map(recoveredProductMonth.map(x=>[x.national_code,Number(x.units)]));
   const products = productRows.results.map((p: any) => ({
       ...p,
       nationalCode: p.national_code,
       presentation: p.presentation,
       brand: p.brand,
-      months: parseJson(p.months_json, {}),
+      months: {...parseJson(p.months_json, {}),...(needsRecovery?{[sourceMonth]:recoveredProductUnits.get(p.national_code)||0}:{})},
       quarters: parseJson(p.quarters_json, {}),
     })),
-    rawProducts = client ? clientProducts : products,
+    rawProductsCurrent = client ? clientProducts : products,
     latestProductMonth =
-      productTimelineRows.results
+      (needsRecovery?sourceMonth:'') || productTimelineRows.results
         .flatMap((p: any) => Object.keys(parseJson(p.months_json, {})))
         .filter((x: string) => /^\d{6}$/.test(x))
         .sort()
@@ -1318,10 +1348,16 @@ async function dashboardData(env: Env, url: URL) {
           shiftMonth(latestProductMonth, i - 7),
         )
       : [],
-    allMoleculeProducts = aggregateMoleculeProducts(
-      rawProducts,
-      latestProductMonth,
-    );
+    historicalVersions = new Map<string,{rows:any[];months:string[]}>();
+  for(const row of historicalProducts.results){
+    let version=historicalVersions.get(row.import_id);
+    if(!version){version={rows:[],months:parseJson(row.product_months,[])};historicalVersions.set(row.import_id,version);}
+    if(client)version.rows.push(...parseJson<any[]>(row.products_json,[]));
+    else version.rows.push({...row,nationalCode:row.national_code,months:parseJson(row.months_json,{})});
+  }
+  for(const version of historicalVersions.values())if(!version.months.length)version.months=[...new Set(version.rows.flatMap(p=>Object.keys(p.months||{})))];
+  const rawProducts=mergeProductHistory([...historicalVersions.values(),{rows:rawProductsCurrent,months:[...new Set(products.flatMap(p=>Object.keys(p.months)))]}]);
+  const allMoleculeProducts=aggregateMoleculeProducts(rawProducts,latestProductMonth);
   const contains = (value: unknown, query: string) =>
       String(value || "")
         .toLowerCase()
@@ -1377,18 +1413,37 @@ async function dashboardData(env: Env, url: URL) {
           b.previousUnits - a.previousUnits,
       )
       .slice(0, 10);
-  const parsedDelegateDetails = delegateDetails.results.map((d: any) => ({
-      ...d,
-      quarters: parseJson(d.quarters_json, []),
-    })),
+  const parsedDelegateDetails = delegateDetails.results.map((d: any) => {
+      const current=recoverShiftedDelegate({...d,quarters:parseJson(d.quarters_json,[])},latest.source_date,recoveredClients.filter(c=>c.cod_del===d.cod_del).map(c=>c.quarters));
+      const prior=historicalDelegates.results.filter(h=>h.cod_del===d.cod_del && !parseJson<any[]>(h.quarters_json,[]).some(q=>Number(q.openingsCount)>1000)).map(h=>parseJson<any[]>(h.quarters_json,[]));
+      // Missing discarded cells in a legacy import may use an earlier observation
+      // of the SAME closed quarter, never data from a different quarter.
+      const versions=[...prior,current.quarters];
+      const quarters=mergeQuarterHistory(versions,currentQuarter).map(q=>{
+        const old=[...prior].reverse().flat().find(p=>p.quarter===q.quarter);
+        return old?Object.fromEntries(Object.entries({...old,...q}).map(([k,v])=>[k,v==null?old[k]??null:v])):q;
+      });
+      return {...current,quarters};
+    }),
     reconciledQuota = reconcileQuotaWithOfficialCycles(
       quota.results,
       parsedDelegateDetails,
+      currentQuarter,
+      latest.source_date,
     );
+  const correctedCycles=cycles.results.map(c=>{
+    const q=parsedDelegateDetails.find(d=>d.cod_del===c.cod_del)?.quarters.find((q:any)=>q.quarter===currentQuarter);
+    const rows=recoveredClients.filter(r=>r.cod_del===c.cod_del);
+    return q?{...c,current_q:q.total,platform:q.platform,push:q.push,pharmacies_200:q.pharmacies200,clients_growing:rows.filter(r=>r.variation>0).length,clients_declining:rows.filter(r=>r.variation<0).length,euros_growing:rows.reduce((s,r)=>s+Math.max(0,r.variation),0),euros_declining:rows.reduce((s,r)=>s+Math.min(0,r.variation),0)}:c;
+  });
   return {
     ok: true,
     latest,
     imports,
+    currentQuarter,
+    periodVersion: SALES_PERIOD_VERSION,
+    isHistorical:latest.id!==imports[0]?.id,
+    requiresOriginal:parsedDelegateDetails.some(d=>d.requiresOriginal),
     selectedDelegate: delegate,
     selectedClient: client,
     selectedEvolution: evolution,
@@ -1397,7 +1452,7 @@ async function dashboardData(env: Env, url: URL) {
     delegates: delegates.results,
     clientOptions: clientOptions.results,
     quota: reconciledQuota,
-    cycles: cycles.results,
+    cycles: correctedCycles,
     delegateDetails: parsedDelegateDetails,
     classifications: classes.results,
     ytd,

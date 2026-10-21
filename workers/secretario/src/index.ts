@@ -361,6 +361,7 @@ o, si de verdad necesitas aclaraciones:
           time: new Date().toISOString(),
           capabilities: {
             webOAuthIsolationSupported: true,
+            salesPeriods: '2026-10-21-v1',
             oauthClientsSeparated: Boolean(env.GOOGLE_WEB_CLIENT_ID && env.GOOGLE_WEB_CLIENT_SECRET && env.GOOGLE_WEB_CLIENT_ID !== env.GOOGLE_CLIENT_ID),
             writingFormat: '2026-10-19-v2-summary',
             writingPreferenceStored: database.status === 'fulfilled' && Boolean(database.value?.writingPreference),

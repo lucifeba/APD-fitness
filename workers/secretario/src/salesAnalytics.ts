@@ -1,5 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import type { Env } from './env';
+import {listSalesImports} from './salesDashboard';
+import {recoverShiftedClient,recoverMonthlySales} from './salesPeriods';
 
 type Quarter = { quarter:string; total:number; platform?:number; push?:number };
 type SalesRow = { vdl:string; cod_del:string; delegate:string; client:string; classification:string; route:string; previous_vrn:number; current_vrn:number; variation:number; monthly_sales:string|Record<string,number>; quarters_json:string|Quarter[] };
@@ -39,5 +41,13 @@ export function openingsWorkbook(openingsByQuarter:ReturnType<typeof buildSalesA
   };return zipSync(files,{level:6});
 }
 
-async function analyticsData(env:Env,url:URL){const imports=(await env.DB.prepare('SELECT id,source_date FROM sales_dashboard_imports ORDER BY source_date DESC,imported_at DESC LIMIT 16').all<any>()).results,selectedId=url.searchParams.get('import')||imports[0]?.id,id=imports.find(x=>x.id===selectedId)?.id||imports[0]?.id;if(!id)return{ok:true,empty:true,openingsByQuarter:[],changes:[],latestMonth:''};const rows=(await env.DB.prepare('SELECT c.vdl,c.cod_del,c.delegate,c.client,c.classification,c.route,c.previous_vrn,c.current_vrn,c.variation,d.monthly_sales,d.quarters_json FROM sales_dashboard_clients c JOIN sales_dashboard_client_details d ON d.import_id=c.import_id AND d.vdl=c.vdl WHERE c.import_id=?').bind(id).all<SalesRow>()).results,all=buildSalesAnalytics(rows),delegate=url.searchParams.get('delegate')||'';return{ok:true,empty:false,selectedDelegate:delegate,openingsByQuarter:all.openingsByQuarter,changes:delegate?all.changes.filter(x=>x.cod_del===delegate):all.changes,latestMonth:all.latestMonth};}
+async function analyticsData(env:Env,url:URL){
+ const imports=await listSalesImports(env),selected=imports.find(x=>x.id===url.searchParams.get('import'))||imports[0];
+ if(!selected)return{ok:true,empty:true,openingsByQuarter:[],changes:[],latestMonth:''};
+ const rows=(await env.DB.prepare('SELECT c.vdl,c.cod_del,c.delegate,c.client,c.classification,c.route,c.previous_vrn,c.current_vrn,c.variation,d.monthly_sales,d.quarters_json FROM sales_dashboard_clients c JOIN sales_dashboard_client_details d ON d.import_id=c.import_id AND d.vdl=c.vdl WHERE c.import_id=?').bind(selected.id).all<SalesRow>()).results.map(row=>{
+   const quarters=recoverShiftedClient(parse(row.quarters_json,[]),selected.source_date);
+   return {...row,quarters_json:quarters,monthly_sales:recoverMonthlySales(parse(row.monthly_sales,{}),quarters,selected.source_date)};
+ }),all=buildSalesAnalytics(rows),delegate=url.searchParams.get('delegate')||'';
+ return{ok:true,empty:false,importId:selected.id,selectedDelegate:delegate,openingsByQuarter:all.openingsByQuarter,changes:delegate?all.changes.filter(x=>x.cod_del===delegate):all.changes,latestMonth:all.latestMonth};
+}
 export async function salesAnalyticsApi(req:Request,env:Env){const url=new URL(req.url);if(req.method!=='GET')return Response.json({error:'Método no permitido'},{status:405});try{const data=await analyticsData(env,url);if(url.pathname.endsWith('.xlsx')){if(data.empty)return new Response('Sin datos',{status:404});const bytes=openingsWorkbook(data.openingsByQuarter);return new Response(bytes,{headers:{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','content-disposition':'attachment; filename="aperturas-por-trimestre.xlsx"','cache-control':'no-store'}});}return Response.json(data,{headers:{'cache-control':'no-store'}});}catch(error){return Response.json({error:error instanceof Error?error.message:'No se pudo calcular el análisis comercial'},{status:400});}}
