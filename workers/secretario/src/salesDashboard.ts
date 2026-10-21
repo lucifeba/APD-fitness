@@ -1436,6 +1436,12 @@ async function dashboardData(env: Env, url: URL) {
     const rows=recoveredClients.filter(r=>r.cod_del===c.cod_del);
     return q?{...c,current_q:q.total,platform:q.platform,push:q.push,pharmacies_200:q.pharmacies200,clients_growing:rows.filter(r=>r.variation>0).length,clients_declining:rows.filter(r=>r.variation<0).length,euros_growing:rows.reduce((s,r)=>s+Math.max(0,r.variation),0),euros_declining:rows.reduce((s,r)=>s+Math.min(0,r.variation),0)}:c;
   });
+  const currentClasses=new Map<string,{classification:string;clients:number;sales:number;variation:number}>(),currentPatterns=new Map<string,number>();
+  for(const row of recoveredClients){
+    const group=currentClasses.get(row.classification)||{classification:row.classification,clients:0,sales:0,variation:0};
+    group.clients++;group.sales+=Number(row.quarters.find((q:any)=>q.quarter===currentQuarter)?.total||0);group.variation+=row.variation;currentClasses.set(row.classification,group);
+    const pattern=purchasePattern(row.quarters.map((q:any)=>q.total));currentPatterns.set(pattern,(currentPatterns.get(pattern)||0)+1);
+  }
   return {
     ok: true,
     latest,
@@ -1454,7 +1460,7 @@ async function dashboardData(env: Env, url: URL) {
     quota: reconciledQuota,
     cycles: correctedCycles,
     delegateDetails: parsedDelegateDetails,
-    classifications: classes.results,
+    classifications: [...currentClasses.values()].sort((a,b)=>a.classification.localeCompare(b.classification,'es')),
     ytd,
     changes: changes.results,
     alerts: alerts.results,
@@ -1463,7 +1469,7 @@ async function dashboardData(env: Env, url: URL) {
     productMonths,
     moleculeProducts,
     productAlerts,
-    purchasePatterns: patternRows.results,
+    purchasePatterns: [...currentPatterns].map(([pattern,count])=>({pattern,count})),
     molecules: moleculeRows.results.map((x) => x.brand),
     productOptions: [...new Set(allMoleculeProducts.flatMap((x) => (x.children || []).map((child: any) => child.molecule).filter(Boolean)))].sort((a, b) => String(a).localeCompare(String(b), "es")),
     clientDetail,
