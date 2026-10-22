@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
-import {strToU8,strFromU8,zipSync,Unzip,UnzipInflate} from 'fflate';
+import {strToU8,strFromU8,zipSync,unzipSync,Unzip,UnzipInflate} from 'fflate';
 
 const compile=file=>ts.transpileModule(readFileSync(new URL('../src/'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText.replace(/^import .*;$/gm,'').replace(/export /g,'');
 const periods=new Function(compile('salesPeriods.ts')+';return {SALES_SCHEMA_VERSION,SALES_PERIOD_VERSION,salesKey,quarterName,quarterOrder,quarterForMonth,latestQuarter,periodColumns,readPeriodSeries,mergeQuarterHistory,mergeProductHistory,recoverShiftedClient,recoverShiftedDelegate,recoverMonthlySales}')();
-const api=new Function(...Object.keys(periods),'strFromU8','Unzip','UnzipInflate',compile('salesDashboard.ts')+';return {parseSalesDashboard,importSalesDashboard,reconcileQuotaWithOfficialCycles,listSalesImports}')(...Object.values(periods),strFromU8,Unzip,UnzipInflate);
+const api=new Function(...Object.keys(periods),'strFromU8','Unzip','UnzipInflate',compile('salesDashboard.ts')+';return {parseSalesDashboard,importSalesDashboard,reconcileQuotaWithOfficialCycles,listSalesImports,salesDashboardApi}')(...Object.values(periods),strFromU8,Unzip,UnzipInflate);
 const col=n=>{let s='';while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)}return s};
 const serial=(year,month,day=1)=>(Date.UTC(year,month-1,day)-Date.UTC(1899,11,30))/86400000;
 const escape=v=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;');
@@ -63,6 +63,41 @@ test('empty merged and styled cells do not end a quarter block',()=>{
  const columns=periods.periodColumns({E:'Q2 26-27',F:'ACTUAL Q3 26-27',G:'Q2 26-27'},{E:'VENTA TOTAL',F:null,G:'PLATAFORMA'},'VENTA TOTAL');
  assert.deepEqual(columns.map(p=>p.quarter),['Q2 26-27','Q3 26-27']);
 });
+test('section headings shifted by new columns use complete runs without crossing metrics',()=>{
+ const headers={D:'OTC',E:'Q1 26-27',F:'Q2 26-27',G:'ACTUAL Q3 26-27',H:'Q1 26-27',I:'Q2 26-27',J:'ACTUAL Q3 26-27',K:'Q1 26-27',L:'Q2 26-27',M:'ACTUAL Q3 26-27'};
+ // The platform title is two cells to the right of the data block after a
+ // quarter insertion. The old boundary included H:I and rejected duplicates.
+ const groups={D:'SEGUIMIENTO OTC',E:'VENTA TOTAL',J:'V. PLATAFORMA CICLO',M:'V. PUSH CICLO'};
+ assert.deepEqual(periods.periodColumns(headers,groups,'VENTA TOTAL').map(x=>x.column),['E','F','G']);
+ assert.deepEqual(periods.periodColumns(headers,groups,'V. PLATAFORMA CICLO').map(x=>x.column),['H','I','J']);
+ assert.deepEqual(periods.periodColumns(headers,groups,'V. PUSH CICLO').map(x=>x.column),['K','L','M']);
+});
+test('quarter labels accept typographic hyphens and complete fiscal years',()=>{
+ assert.equal(periods.quarterName('ACTUAL VRN\nQ3 2026‑2027'),'Q3 26-27');
+ assert.equal(periods.quarterName('Q3 26−27'),'Q3 26-27');
+ assert.equal(periods.quarterName('Q3 26-26'),'');
+});
+test('genuine duplicate or ambiguous quarters remain rejected with useful cell diagnostics',()=>{
+ assert.throws(()=>periods.periodColumns({E:'Q1 26-27',F:'Q2 26-27',G:'Q2 26-27',H:'ACTUAL Q3 26-27',I:'Q1 26-27'},{E:'VENTA TOTAL',I:'V. PLATAFORMA CICLO'},'VENTA TOTAL','Cuadro Mando, fila 10'),/Cuadro Mando, fila 10.*G: Q2 26-27/);
+ assert.throws(()=>periods.periodColumns({E:'ACTUAL Q2 26-27',F:'ACTUAL Q3 26-27'},{E:'VENTA TOTAL'},'VENTA TOTAL'),/seguridad/);
+});
+test('full import handles shifted section headings and typographic fiscal labels',()=>{
+ const files=unzipSync(fixture());
+ for(const path of ['xl/worksheets/sheet0.xml','xl/worksheets/sheet2.xml']) {
+  let xml=strFromU8(files[path]);
+  xml=xml.replace(/26-27/g,'2026‑2027');
+  const groupRow=path.endsWith('sheet0.xml')?9:6;
+  xml=xml.replace(new RegExp('(<row r="'+groupRow+'">)([\\s\\S]*?)(</row>)'),(_,a,body,c)=>a+body.replace(/(<c r=")([A-Z]+)(\d+")/g,(_m,prefix,letters,suffix)=>{
+    const n=[...letters].reduce((v,ch)=>v*26+ch.charCodeAt(0)-64,0);
+    return prefix+col(n+1)+suffix;
+  })+c);
+  files[path]=strToU8(xml);
+ }
+ const parsed=api.parseSalesDashboard(zipSync(files),'Q3-shifted.xlsx');
+ assert.equal(parsed.metadata.currentQuarter,'Q3 26-27');
+ assert.equal(parsed.delegates[0].quarters.at(-1).total,1000);
+ assert.equal(parsed.clientDetails[0].quarters.at(-1).total,1000);
+});
 test('history deduplicates versions by Q and preserves newer corrections including zero',()=>{
  const rows=periods.mergeQuarterHistory([[{quarter:'Q1 26-27',total:5},{quarter:'Q2 26-27',total:100}],[{quarter:'Q2 26-27',total:0},{quarter:'Q3 26-27',total:10}]],'Q3 26-27');
  assert.deepEqual(rows.map(x=>x.total),[5,0,10]);
@@ -108,4 +143,42 @@ test('only a completed import becomes visible and the original XLSX is retained'
  assert.match(statements[0].sql,/ready\) VALUES\([?,]+0\)/);
  assert.match(statements.at(-1).sql,/SET ready=1/);
  assert.ok(!statements.some(x=>/DELETE FROM/.test(x.sql)));
+});
+test('rejected imports retain the original bytes without publishing a new snapshot',async()=>{
+ const statements=[];
+ const DB={prepare(sql){const stmt={sql,bind(...values){stmt.values=values;return stmt},async run(){statements.push(stmt);return{success:true}}};return stmt}};
+ const bytes=fixture(7,true);
+ await assert.rejects(api.importSalesDashboard({DB},bytes,'rejected.xlsx','web','owner@example.com'),error=>{
+  assert.match(error.uploadId,/^rejected-/);assert.match(error.message,/conservado/);return true;
+ });
+ const stored=statements.filter(x=>x.sql.startsWith('INSERT INTO sales_dashboard_sources'));
+ assert.deepEqual(new Uint8Array(stored[0].values[2]),bytes);
+ assert.ok(statements.some(x=>x.sql.startsWith('INSERT INTO sales_dashboard_rejected_uploads')));
+ assert.ok(!statements.some(x=>x.sql.startsWith('INSERT INTO sales_dashboard_imports')||x.sql.includes('SET ready=1')));
+});
+test('rejected files and retry are restricted to the owner before any database access',async()=>{
+ for(const path of ['rejected-upload','retry']) {
+  const response=await api.salesDashboardApi(new Request('https://example.com/api/sales-dashboard/'+path,{method:path==='retry'?'POST':'GET'}),{OWNER_EMAIL:'owner@example.com',DB:{prepare(){throw new Error('must not read private source')}}},'other@example.com');
+  assert.equal(response.status,403);
+ }
+});
+test('retrying an already imported source is idempotent',async()=>{
+ const id='rejected-00000000-0000-0000-0000-000000000001';
+ const response=await api.salesDashboardApi(new Request('https://example.com/api/sales-dashboard/retry',{method:'POST',body:JSON.stringify({uploadId:id})}),{OWNER_EMAIL:'owner@example.com',DB:{prepare(sql){assert.match(sql,/SELECT \*/);return{bind(){return this},async first(){return{id,byte_size:100,resolved_import_id:'existing'}}}}}},'owner@example.com');
+ assert.equal(response.status,200);assert.equal((await response.json()).import.id,'existing');
+});
+test('retries reject incomplete archived files before publishing',async()=>{
+ const id='rejected-00000000-0000-0000-0000-000000000001';
+ const DB={prepare(sql){return{bind(){return this},async first(){return{id,byte_size:100}},async all(){return{results:[{chunk_index:0,content:[1,2]}]}}}}};
+ const response=await api.salesDashboardApi(new Request('https://example.com/api/sales-dashboard/retry',{method:'POST',body:JSON.stringify({uploadId:id})}),{OWNER_EMAIL:'owner@example.com',DB},'owner@example.com');
+ assert.equal(response.status,400);assert.match((await response.json()).error,/incompleto/);
+});
+test('an archived original can be retried through the API and published completely',async()=>{
+ const id='rejected-00000000-0000-0000-0000-000000000001',bytes=fixture(),writes=[];
+ const DB={prepare(sql){const stmt={sql,bind(...values){stmt.values=values;return stmt},async first(){return{id,byte_size:bytes.length,source_name:'Q3.xlsx',source_channel:'telegram'}},async all(){return{results:[{chunk_index:0,content:Array.from(bytes.slice(0,100))},{chunk_index:1,content:Array.from(bytes.slice(100))}]}},async run(){writes.push(stmt);return{success:true}}};return stmt},async batch(items){writes.push(...items);return items.map(()=>({success:true}))}};
+ const response=await api.salesDashboardApi(new Request('https://example.com/api/sales-dashboard/retry',{method:'POST',body:JSON.stringify({uploadId:id})}),{OWNER_EMAIL:'owner@example.com',DB},'owner@example.com');
+ const body=await response.json();assert.equal(response.status,200);assert.equal(body.import.currentQuarter,'Q3 26-27');
+ const published=writes.find(x=>x.sql.includes('SET ready=1'));
+ assert.equal(published.values[0],body.import.id);
+ assert.ok(writes.some(x=>x.sql.includes('SET resolved_import_id=')&&x.values[1]===id));
 });

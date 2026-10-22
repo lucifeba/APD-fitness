@@ -557,9 +557,9 @@ export function parseSalesDashboard(
   const headerRow = main.get(10) || {},
     mainGroups = main.get(9) || {},
     monthCols = Object.keys(headerRow).filter(c => Number(headerRow[c]) >= 36526 && Number(headerRow[c]) <= 73050),
-    totalPeriods = periodColumns(headerRow, mainGroups, 'VENTA TOTAL'),
-    platformPeriods = periodColumns(headerRow, mainGroups, 'V. PLATAFORMA CICLO'),
-    pushPeriods = periodColumns(headerRow, mainGroups, 'V. PUSH CICLO'),
+    totalPeriods = periodColumns(headerRow, mainGroups, 'VENTA TOTAL','Cuadro Mando, fila 10'),
+    platformPeriods = periodColumns(headerRow, mainGroups, 'V. PLATAFORMA CICLO','Cuadro Mando, fila 10'),
+    pushPeriods = periodColumns(headerRow, mainGroups, 'V. PUSH CICLO','Cuadro Mando, fila 10'),
     currentQuarter = totalPeriods.find(p=>p.current)?.quarter || latestQuarter(totalPeriods),
     periodProgress = currentQuarter === quarterForMonth(sourceDate) ? progress : 1,
     otcStart = Object.entries(mainGroups).find(([,v])=>salesKey(v)==='seguimiento otc')?.[0],
@@ -714,21 +714,23 @@ export function parseSalesDashboard(
     cycleRows = sheet("Ciclos Cerrados", 6, 60),
     cycleHeader = cycleRows.get(7) || {},
     cycleGroups = cycleRows.get(6) || {},
-    cycleTotal = periodColumns(cycleHeader,cycleGroups,'VENTA TOTAL'),
-    cyclePlatform = periodColumns(cycleHeader,cycleGroups,'V. PLATAFORMA CICLO'),
-    cyclePush = periodColumns(cycleHeader,cycleGroups,'V. PUSH CICLO'),
-    cycle200 = periodColumns(cycleHeader,cycleGroups,'Farmacias Cumplen > 200€'),
-    cycleOrders = periodColumns(cycleHeader,cycleGroups,'Pedidos Directos'),
-    cycleTransfers = periodColumns(cycleHeader,cycleGroups,'Pedidos Transfer'),
-    cycleRatio = periodColumns(cycleHeader,cycleGroups,'% Directo sobre Transfer ( ni incluye P Negativas)'),
-    cycleOpenings = periodColumns(cycleHeader,cycleGroups,'Aperturas Venta Push'),
-    cycleOpeningSales = periodColumns(cycleHeader,cycleGroups,'VRN PUSH Aperturas'),
-    cycleOpeningMean = periodColumns(cycleHeader,cycleGroups,'VRN PROMEDIO Aperturas'),
+    cycleTotal = periodColumns(cycleHeader,cycleGroups,'VENTA TOTAL','Ciclos Cerrados, fila 7'),
+    cyclePlatform = periodColumns(cycleHeader,cycleGroups,'V. PLATAFORMA CICLO','Ciclos Cerrados, fila 7'),
+    cyclePush = periodColumns(cycleHeader,cycleGroups,'V. PUSH CICLO','Ciclos Cerrados, fila 7'),
+    cycle200 = periodColumns(cycleHeader,cycleGroups,'Farmacias Cumplen > 200€','Ciclos Cerrados, fila 7'),
+    cycleOrders = periodColumns(cycleHeader,cycleGroups,'Pedidos Directos','Ciclos Cerrados, fila 7'),
+    cycleTransfers = periodColumns(cycleHeader,cycleGroups,'Pedidos Transfer','Ciclos Cerrados, fila 7'),
+    cycleRatio = periodColumns(cycleHeader,cycleGroups,'% Directo sobre Transfer ( ni incluye P Negativas)','Ciclos Cerrados, fila 7'),
+    cycleOpenings = periodColumns(cycleHeader,cycleGroups,'Aperturas Venta Push','Ciclos Cerrados, fila 7'),
+    cycleOpeningSales = periodColumns(cycleHeader,cycleGroups,'VRN PUSH Aperturas','Ciclos Cerrados, fila 7'),
+    cycleOpeningMean = periodColumns(cycleHeader,cycleGroups,'VRN PROMEDIO Aperturas','Ciclos Cerrados, fila 7'),
     cycleHeaders = headerMap(cycleHeader),
     cycles: any[] = [],
     delegates: any[] = [];
   if(latestQuarter(cycleTotal)!==currentQuarter || (quotaQuarter && quotaQuarter!==currentQuarter))
     throw new Error('Cuota, Cuadro Mando y Ciclos Cerrados no corresponden al mismo trimestre. No se sustituirá el cuadro vigente.');
+  for(const metric of [cyclePlatform,cyclePush,cycle200,cycleOrders,cycleTransfers,cycleRatio,cycleOpenings,cycleOpeningSales,cycleOpeningMean])
+    if(metric.length!==cycleTotal.length||cycleTotal.some(p=>!metric.some(x=>x.quarter===p.quarter)))throw new Error('Los bloques de Ciclos Cerrados no contienen los mismos trimestres. Se conserva el cuadro vigente.');
   const periodValue=(row:Row,cols:ReturnType<typeof periodColumns>,quarter:string)=>number(row[cols.find(x=>x.quarter===quarter)?.column||'']);
   for (const [idx, row] of cycleRows) {
     if (idx === 7 || !/^BU\s*\d+/i.test(clean(row.C))) continue;
@@ -898,9 +900,25 @@ export async function importSalesDashboard(
   sourceName: string,
   sourceChannel: string,
   importedBy: string,
+  rejectedUploadId = '',
 ) {
-  const payload = parseSalesDashboard(bytes, sourceName),
-    id = `${payload.metadata.sourceDate}-${crypto.randomUUID()}`,
+  let payload: DashboardPayload;
+  try { payload=parseSalesDashboard(bytes,sourceName); }
+  catch(error) {
+    const message=error instanceof Error?error.message:'No se pudo leer el Excel';
+    let uploadId=rejectedUploadId;
+    if(!uploadId) {
+      uploadId='rejected-'+crypto.randomUUID();
+      const source=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);
+      try {
+        for(let offset=0;offset<source.length;offset+=256*1024)
+          await env.DB.prepare('INSERT INTO sales_dashboard_sources(import_id,chunk_index,content) VALUES(?,?,?)').bind(uploadId,offset/(256*1024),source.slice(offset,offset+256*1024).buffer).run();
+        await env.DB.prepare('INSERT INTO sales_dashboard_rejected_uploads(id,source_name,source_channel,imported_at,imported_by,byte_size,error) VALUES(?,?,?,?,?,?,?)').bind(uploadId,sourceName,sourceChannel,new Date().toISOString(),importedBy,source.length,message).run();
+      } catch { uploadId=''; }
+    } else await env.DB.prepare('UPDATE sales_dashboard_rejected_uploads SET error=? WHERE id=?').bind(message,uploadId).run();
+    throw Object.assign(new Error(message+(uploadId?' El archivo se ha conservado para reintentar la importación.':'')),{uploadId});
+  }
+  const id = `${payload.metadata.sourceDate}-${crypto.randomUUID()}`,
     stamp = new Date().toISOString();
   await env.DB.prepare(
     "INSERT INTO sales_dashboard_imports(id,source_name,source_date,source_channel,imported_at,imported_by,client_count,product_count,recovery_match_count,current_quarter,parser_version,product_months,ready) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0)",
@@ -1111,6 +1129,7 @@ export async function importSalesDashboard(
   }
   // Keep earlier periods. Never delete history when uploading a newer Q.
   await env.DB.prepare('UPDATE sales_dashboard_imports SET ready=1 WHERE id=?').bind(id).run();
+  if(rejectedUploadId)await env.DB.prepare('UPDATE sales_dashboard_rejected_uploads SET resolved_import_id=? WHERE id=?').bind(id,rejectedUploadId).run();
   const result = {
     id,
     ...payload.metadata,
@@ -1530,6 +1549,28 @@ export async function salesDashboardApi(
       Response.json(body, { status, headers: { "cache-control": "no-store" } }),
     url = new URL(req.url);
   try {
+    if(url.pathname==='/api/sales-dashboard/rejected-upload'||url.pathname==='/api/sales-dashboard/retry') {
+      if(!email||email.toLowerCase()!==env.OWNER_EMAIL?.toLowerCase())return reply({error:'Solo la propietaria puede acceder a los archivos de importación.'},403);
+      const retry=url.pathname.endsWith('/retry');
+      if(req.method!==(retry?'POST':'GET'))return reply({error:'Método no permitido'},405);
+      const uploadId=retry?String((await req.json<{uploadId?:string}>()).uploadId||''):url.searchParams.get('id');
+      if(retry&&!/^rejected-[a-f0-9-]{36}$/.test(uploadId||''))return reply({error:'Referencia de importación no válida.'},400);
+      const saved:any=await env.DB.prepare('SELECT * FROM sales_dashboard_rejected_uploads WHERE '+(uploadId?'id=?':"resolved_import_id IS NULL AND imported_at>COALESCE((SELECT MAX(imported_at) FROM sales_dashboard_imports WHERE ready=1),'') ORDER BY imported_at DESC LIMIT 1")).bind(...(uploadId?[uploadId]:[])).first();
+      if(!saved)return retry?reply({error:'No se encontró el archivo conservado.'},404):reply({upload:null});
+      if(!retry&&url.searchParams.get('download')!=='1')return reply({upload:saved});
+      if(saved.byte_size<=0||saved.byte_size>20*1024*1024)throw new Error('El tamaño del archivo conservado no es válido.');
+      if(retry&&saved.resolved_import_id)return reply({ok:true,import:{id:saved.resolved_import_id},alreadyImported:true});
+      const parts=await env.DB.prepare('SELECT chunk_index,content FROM sales_dashboard_sources WHERE import_id=? ORDER BY chunk_index').bind(saved.id).all<any>();
+      const bytes=new Uint8Array(saved.byte_size);let offset=0;
+      for(const [index,part] of (parts.results||[]).entries()) {
+        const chunk=part.content instanceof ArrayBuffer?new Uint8Array(part.content):Uint8Array.from(part.content);
+        if(part.chunk_index!==index||offset+chunk.length>bytes.length)throw new Error('El archivo conservado está incompleto.');
+        bytes.set(chunk,offset);offset+=chunk.length;
+      }
+      if(offset!==bytes.length)throw new Error('El archivo conservado está incompleto.');
+      if(!retry)return new Response(bytes,{headers:{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','content-disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(saved.source_name),'cache-control':'no-store'}});
+      return reply({ok:true,import:await importSalesDashboard(env,bytes,saved.source_name,saved.source_channel,email,saved.id)});
+    }
     if (req.method === "POST") {
       if (email.toLowerCase() !== env.OWNER_EMAIL?.toLowerCase())
         return reply(
@@ -1610,6 +1651,7 @@ export async function salesDashboardApi(
   } catch (e) {
     return reply(
       {
+        uploadId:(e as any)?.uploadId||undefined,
         error:
           e instanceof Error
             ? e.message

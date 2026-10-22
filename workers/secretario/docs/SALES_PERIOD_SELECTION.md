@@ -48,3 +48,23 @@ Pruebas de inserción de un Q con desplazamiento de todos los bloques, nuevos
 meses, ceros vigentes, desglose incompatible, históricos sin duplicados,
 recuperación de columnas antiguas y publicación completa con archivo original.
 También se ha validado la lectura del Excel real anterior de septiembre.
+
+## Corrección del rechazo de encabezados (22 de octubre)
+
+Los bloques se identifican por secuencias trimestrales completas y por una
+asignación única y ordenada a sus títulos. Se tolera el desplazamiento de hasta
+dos columnas del título combinado al añadir meses o Q. No se eliminan Q
+duplicados ni se adivinan etiquetas ambiguas. Se admiten guiones tipográficos.
+Los errores indican hoja, fila y encabezados observados para diagnosticarlos.
+Todos los bloques de Ciclos Cerrados deben cubrir los mismos trimestres.
+
+Una carga que no supera la validación conserva su XLSX privado y no sustituye
+los datos publicados. La propietaria puede consultar o descargarlo en
+`GET /api/sales-dashboard/rejected-upload` (añadir `download=1` para el binario)
+y reintentar con `POST /api/sales-dashboard/retry`, JSON `{uploadId}`. El panel
+muestra el rechazo y el botón de reintento. El acceso requiere sesión de la
+propietaria. Un reintento ya publicado devuelve su import_id sin duplicarlo.
+
+La carga Q3 rechazada antes de esta mejora no se conservó. La captura permite
+localizar la fase que falló, pero no reconstruir las etiquetas ni los valores
+del XLSX. La comprobación final de esa carga necesita el archivo original.

@@ -2,6 +2,27 @@ export const SALES_UI_JS = String.raw`
 let salesClientOptions=[];
 const salesCount=value=>value==null?'No disponible':Number(value).toLocaleString('es-ES');
 const salesAmount=value=>value==null?'No disponible':money(value);
+function salesImportNotice(upload){
+ let box=$('#sales-import-issue');
+ if(!box){box=document.createElement('div');box.id='sales-import-issue';box.className='notice';box.setAttribute('role','status');$('#sales-status').insertAdjacentElement('afterend',box);}
+ box.replaceChildren();box.hidden=!upload;if(!upload)return;
+ const message=document.createElement('p');message.textContent='La carga de '+upload.source_name+' no se ha incorporado. Se muestra la última versión validada. '+upload.error;
+ const button=document.createElement('button');button.type='button';button.className='btn';button.textContent='Reintentar archivo conservado';button.onclick=()=>retrySalesUpload(upload.id,button);
+ box.append(message,button);
+}
+async function refreshSalesImportNotice(){try{const r=await fetch('/api/sales-dashboard/rejected-upload',{cache:'no-store'});if(r.ok){const j=await r.json();salesImportNotice(j.upload)}}catch{}}
+async function retrySalesUpload(uploadId,button){
+ button.disabled=true;
+ try{const r=await fetch('/api/sales-dashboard/retry',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({uploadId})});const j=await r.json();if(!r.ok)throw new Error(j.error);salesImportNotice(null);await loadSalesDashboard(true);toast('Archivo incorporado y cuadro actualizado');}
+ catch(e){$('#sales-status').textContent=e.message;}finally{button.disabled=false;}
+}
+async function uploadSalesDashboard(e){
+ e.preventDefault();const button=e.target.querySelector('button'),file=$('#sales-file').files[0];if(!file)return;
+ button.disabled=true;$('#sales-status').textContent='Analizando todas las hojas y validando los datos del trimestre…';
+ try{const form=new FormData();form.append('file',file);const r=await fetch('/api/sales-dashboard',{method:'POST',body:form});const j=await r.json();if(!r.ok){if(j.uploadId)salesImportNotice({id:j.uploadId,source_name:file.name,error:j.error});throw new Error(j.error);}
+ $('#sales-file').value='';salesImportNotice(null);await loadSalesDashboard(true);toast('Datos incorporados al '+j.import.sourceDate);}
+ catch(error){$('#sales-status').textContent=error.message;}finally{button.disabled=false;}
+}
 function renderSalesDashboard(j){
  if(!j)return;
  renderSalesDashboardBase(j);
@@ -80,6 +101,7 @@ async function loadSalesDashboard(reset=false){
   j.changes=analytics.changes||[];j.latestMonth=analytics.latestMonth||'';
   syncSalesFilters(j);lastSalesData=j;renderSalesDashboard(j);enableSalesLayout($('#sales-dashboard'),j.clientDetail?'client':'area');
   $('#sales-status').textContent=(j.isHistorical?'Consulta histórica · ':'Cuadro vigente · ')+j.currentQuarter+' · datos del '+j.latest.source_date+' · '+j.latest.client_count+' farmacias · '+j.latest.product_count+' presentaciones · origen '+j.latest.source_channel+(j.requiresOriginal?' · Ventas trimestrales recuperadas. Algunos campos descartados por la importación anterior figuran como no disponibles; recarga el Excel original para completarlos.':'');
+  refreshSalesImportNotice();
  }catch(e){if(request===salesLoadSequence)$('#sales-status').textContent=e.message;}
 }
 function installSalesChartContrastStyles(){if($('#sales-chart-contrast-styles'))return;document.head.insertAdjacentHTML('beforeend','<style id="sales-chart-contrast-styles">.downloadable-chart{position:relative;min-width:0;overflow:visible!important;margin-top:12px}.chart-canvas{width:100%;overflow-x:auto;padding:12px;border:1px solid #475569;border-radius:14px;background:linear-gradient(180deg,#111A30,#0B1020);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}.chart-svg{display:block;width:100%;height:auto;min-width:560px;color:#F8FAFC;overflow:visible}.chart-svg text{fill:#F8FAFC}.chart-svg .chart-tick{fill:#E2E8F0}.chart-svg .chart-value{fill:#FFFFFF;paint-order:stroke;stroke:#0B1020;stroke-width:5px;stroke-linejoin:round}.chart-svg .grid{stroke:#64748B;stroke-width:1;opacity:.72;stroke-dasharray:5 6}.chart-svg .axis{stroke:#CBD5E1;stroke-width:1.5}.chart-svg .line-halo{fill:none;stroke:#050816;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;opacity:.88}.chart-svg .bar-track{fill:#273449}.donut-chart{width:min(270px,100%);min-width:220px;margin:auto}.chart-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}.chart-legend span{display:grid;grid-template-columns:auto 1fr;column-gap:9px;align-items:center;min-width:0;padding:9px 11px;border:1px solid #475569;border-radius:10px;background:#111A30;color:#F8FAFC}.chart-legend span b{min-width:0;overflow-wrap:anywhere;font-size:12px;line-height:1.25}.chart-legend span small{grid-column:2;color:#CBD5E1;font-size:11px}.legend-dot{grid-row:1/3;width:13px!important;height:13px!important;border:2px solid #F8FAFC;border-radius:4px;box-shadow:0 0 0 1px #020617}.legend-line{grid-row:1/3;width:28px;height:0;border-top:4px solid var(--legend-color);filter:drop-shadow(0 1px 0 #020617)}.chart-download{opacity:1!important;transform:none!important;right:10px!important;top:10px!important;border:1px solid #F8FAFC!important;background:#F8FAFC!important;color:#0B1020!important;box-shadow:0 4px 14px rgba(0,0,0,.35);font-weight:800!important}.chart-download:hover,.chart-download:focus{background:#22D3EE!important;border-color:#22D3EE!important;outline:3px solid rgba(34,211,238,.28)}@media(max-width:700px){.chart-canvas{padding:8px}.chart-svg{min-width:600px}.donut-chart{min-width:220px}.chart-legend{grid-template-columns:1fr}.chart-download{position:sticky!important;float:right;margin:8px;top:8px!important}.downloadable-chart:after{content:"";display:block;clear:both}}@media(prefers-contrast:more){.chart-canvas,.chart-legend span{border-color:#CBD5E1}.chart-svg .grid{stroke:#94A3B8;opacity:1}.chart-svg .axis{stroke:#FFFFFF}.chart-svg .line-halo{stroke:#000;stroke-width:11}}</style>')}

@@ -1,11 +1,11 @@
 // Workbook columns move when a quarter or month is added. Labels, not offsets,
 // identify periods; zero is a reported value, never a reason to select an older Q.
 export const SALES_SCHEMA_VERSION = 2;
-export const SALES_PERIOD_VERSION = '2026-10-21-v1';
+export const SALES_PERIOD_VERSION = '2026-10-22-v2';
 export const salesKey = (value: unknown) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9%]+/gi, ' ').trim().toLowerCase();
 export function quarterName(value: unknown) {
-  const m = String(value ?? '').match(/Q\s*([1-4])\s*(\d{2,4})\s*[-–/]\s*(\d{2,4})/i);
-  return m ? `Q${m[1]} ${m[2].slice(-2)}-${m[3].slice(-2)}` : '';
+  const m = String(value ?? '').normalize('NFKC').match(/Q\s*([1-4])\s*(\d{2,4})\s*[-‐‑‒–—−/]\s*(\d{2,4})/i);
+  return m && (Number(m[3].slice(-2))-Number(m[2].slice(-2))+100)%100===1 ? `Q${m[1]} ${m[2].slice(-2)}-${m[3].slice(-2)}` : '';
 }
 export function quarterOrder(value: unknown) {
   const m = quarterName(value).match(/Q(\d) (\d{2})-/);
@@ -22,14 +22,50 @@ export function latestQuarter(points: {quarter: string}[]) {
 }
 const columnIndex = (value: string) => [...value].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0);
 const columnName = (index: number) => {let out='';while(index){index--;out=String.fromCharCode(65+index%26)+out;index=Math.floor(index/26)}return out;};
-export function periodColumns(headers: Record<string, unknown>, groups: Record<string, unknown>, title: string) {
+export function periodColumns(headers: Record<string, unknown>, groups: Record<string, unknown>, title: string, sheetName='') {
   const entries = Object.entries(groups).filter(([,value])=>String(value??'').trim()).sort((a,b)=>columnIndex(a[0])-columnIndex(b[0]));
   const index = entries.findIndex(([,value])=>salesKey(value)===salesKey(title));
   if (index < 0) throw new Error(`Falta el bloque «${title}» del Excel. No se publicarán datos de otro trimestre.`);
-  const start=columnIndex(entries[index][0]),end=index+1<entries.length?columnIndex(entries[index+1][0]):Infinity;
-  const result=Object.entries(headers).filter(([col])=>columnIndex(col)>=start&&columnIndex(col)<end).map(([column,value])=>({column,quarter:quarterName(value),current:/actual/i.test(String(value))})).filter(x=>x.quarter);
-  if(!result.length || new Set(result.map(x=>x.quarter)).size!==result.length)throw new Error(`Los trimestres del bloque «${title}» no son válidos.`);
-  return result.sort((a,b)=>quarterOrder(a.quarter)-quarterOrder(b.quarter));
+  // A new month/quarter can move data without moving a merged section heading
+  // by the same number of cells. Identify complete chronological header runs,
+  // then match their starts to headings. Never deduplicate a genuine duplicate
+  // Q: an unassigned run is an ambiguous workbook and must remain unpublished.
+  type Period = {column:string;quarter:string;current:boolean};
+  const runs:Period[][]=[];
+  for(const [column,value] of Object.entries(headers).sort((a,b)=>columnIndex(a[0])-columnIndex(b[0]))) {
+    const quarter=quarterName(value);if(!quarter)continue;
+    const point={column,quarter,current:/actual/i.test(String(value))},last=runs.at(-1)?.at(-1);
+    if(last && columnIndex(column)===columnIndex(last.column)+1 && quarterOrder(quarter)===quarterOrder(last.quarter)+1)runs.at(-1)!.push(point);
+    else runs.push([point]);
+  }
+  const periodTitles=new Set(['VENTA TOTAL','PLATAFORMA','V. PLATAFORMA CICLO','V. PUSH CICLO','Farmacias Cumplen > 200€','Pedidos Directos','Pedidos Transfer','% Directo sobre Transfer ( ni incluye P Negativas)','% Pedidos Directo sobre Total ( ni incluye P Negativas)','Aperturas Venta Push','VRN PUSH Aperturas','VRN PROMEDIO Aperturas',title].map(salesKey));
+  const candidates=entries.map(([column,label])=>periodTitles.has(salesKey(label))?runs.flatMap((run,i)=>Math.abs(columnIndex(run[0].column)-columnIndex(column))<=2?[i]:[]):[]);
+  // Match all headings together, in sheet order. Local nearest-neighbour
+  // matching can assign two headings to the same run on a short history.
+  const solutions:number[][]=[];
+  const assign=(i:number,previous:number,current:number[])=>{
+    if(solutions.length>1)return;
+    if(i===entries.length){solutions.push(current);return;}
+    if(!candidates[i].length){assign(i+1,previous,[...current,-1]);return;}
+    for(const run of candidates[i])if(run>previous)assign(i+1,run,[...current,run]);
+  };
+  assign(0,-1,[]);
+  const assignment=solutions.length===1?solutions[0]:entries.map(()=>-1);
+  const selected=assignment[index],result=selected>=0?runs[selected]:[];
+  const nextAssigned=assignment.slice(index+1).find(x=>x>=0),
+    originalStart=columnIndex(entries[index][0]),
+    originalEnd=index+1<entries.length?columnIndex(entries[index+1][0]):Infinity;
+  const stray=runs.some((run,i)=>i!==selected && !assignment.includes(i) && (
+    (columnIndex(run[0].column)>=originalStart&&columnIndex(run[0].column)<originalEnd) ||
+    (selected>=0&&i>selected&&(nextAssigned===undefined||i<nextAssigned))
+  ));
+  const duplicateHeading=entries.filter(([,v])=>salesKey(v)===salesKey(title)).length!==1;
+  const sharedRun=selected>=0&&assignment.filter(x=>x===selected).length!==1;
+  if(!result.length || stray || duplicateHeading || sharedRun || result.filter(x=>x.current).length>1 || result.some((x,i)=>x.current&&i!==result.length-1)) {
+    const observed=Object.entries(headers).filter(([c])=>columnIndex(c)>=originalStart&&columnIndex(c)<originalEnd).map(([c,v])=>`${c}: ${String(v??'').replace(/\s+/g,' ').slice(0,65)}`).filter(x=>!x.endsWith(': ')).join('; ');
+    throw new Error(`No se pueden identificar con seguridad los trimestres de «${title}»${sheetName?' en '+sheetName:''}. Columnas ${entries[index][0]}–${Number.isFinite(originalEnd)?columnName(originalEnd-1):'final'}: ${observed || 'sin encabezados trimestrales'}. El cuadro vigente se conserva.`);
+  }
+  return result;
 }
 export function readPeriodSeries(row: Record<string, unknown>, totals: ReturnType<typeof periodColumns>, platform: ReturnType<typeof periodColumns>, push: ReturnType<typeof periodColumns>, progress=1) {
   const map=(items:typeof totals)=>new Map(items.map(x=>[x.quarter,x.column]));
